@@ -25,179 +25,46 @@ const PORT = Number(process.env.PORT || 3000)
 const WORKING_HOURS =
   process.env.WORKING_HOURS ||
   'Mon-Fri: 10:00am - 11:00pm\nSat & Sun: 9:30am - 11:00pm'
-const AUTO_REPLY_COOLDOWN_MS = Number(
-  process.env.AUTO_REPLY_COOLDOWN_MS || 12 * 60 * 60 * 1000
-)
 const STATUS_REACTION = '\ud83d\udd25'
+const ORDER_RETENTION_LIMIT = 300
 
-const AUTO_REPLY_MESSAGE = [
+const SERVICE_CATALOG = [
+  { key: 'heslb', label: 'HESLB Loan Application' },
+  { key: 'rita', label: 'RITA Birth & Death Certificate' },
+  { key: 'ajira', label: 'Ajira Portal & Job Application' },
+  { key: 'research', label: 'Research Proposal & Field Report' },
+  { key: 'visa', label: 'Visa Application' },
+  { key: 'passport', label: 'Passport Application' },
+  { key: 'university', label: 'University Application' }
+]
+
+const SERVICE_MAP = Object.fromEntries(SERVICE_CATALOG.map((service) => [service.key, service]))
+const SERVICE_MENU = SERVICE_CATALOG.map((service) => `- *${service.key}* : ${service.label}`).join('\n')
+
+const FIRST_CONTACT_MESSAGE = [
   '\ud83d\udc4b *Karibu Mr. UTC | Uni-Connect TZ*',
   '',
-  'Tunasaidia huduma mbalimbali za mtandaoni kwa haraka na kwa ufanisi.',
-  'We support a wide range of online services professionally and quickly.',
+  'Asante kwa kutufikia. Tunahandle online services kwa style ya haraka, clean, na professional.',
+  'Thanks for reaching out. We handle online services fast and professionally.',
   '',
-  '*Huduma zetu / Our services:*',
-  '\ud83c\udf93 *heslb* - HESLB Loan Application',
-  '\ud83d\udcdc *rita* - RITA Birth & Death Certificate',
-  '\ud83d\udcbc *ajira* - Ajira Portal & Job Application',
-  '\ud83d\udcdd *research* - Research Proposal & Field Report',
-  '\u2708\ufe0f *visa* - Visa Application',
-  '\ud83d\uded2 *passport* - Passport Application',
-  '\ud83c\udfeb *university* - University Application',
-  '\ud83d\udccb *services* - Full service list',
-  '\ud83d\udd50 *hours* - Working hours',
-  '\ud83d\udcb0 *price* - Pricing information',
+  '*Services zetu:*',
+  SERVICE_MENU,
   '',
-  `\ud83d\udcf1 Contact us directly: *${CONTACT_NUMBER}*`,
-  '',
-  '_Reply with any keyword above and we will guide you immediately._'
+  'Kama uko ready ku-place order, reply *order* au type service moja kwa moja, mfano *heslb*.',
+  `\ud83d\udcf1 Direct support: *${CONTACT_NUMBER}*`,
+  `\ud83d\udd50 Working hours: ${WORKING_HOURS}`
 ].join('\n')
 
-const KEYWORD_REPLIES = {
-  heslb: [
-    '\ud83c\udf93 *HESLB Loan Application Support*',
-    '',
-    'We assist with:',
-    '- New loan applications',
-    '- Loan renewals',
-    '- Status checking',
-    '- Appeals and corrections',
-    '- General HESLB portal support',
-    '',
-    'Required items may include:',
-    '- Registration number',
-    '- ID or passport photo',
-    '- Parent or guardian documents',
-    '',
-    `\ud83d\udcf1 Contact: *${CONTACT_NUMBER}*`,
-    `\ud83d\udd50 Hours: ${WORKING_HOURS}`
-  ].join('\n'),
-  rita: [
-    '\ud83d\udcdc *RITA Certificate Services*',
-    '',
-    'We assist with:',
-    '- Birth certificate applications',
-    '- Death certificate applications',
-    '- Certificate verification',
-    '- Record corrections',
-    '',
-    'Typical requirements:',
-    '- Full name',
-    '- Date of birth',
-    '- Parent details',
-    '',
-    `\ud83d\udcf1 Contact: *${CONTACT_NUMBER}*`,
-    `\ud83d\udd50 Hours: ${WORKING_HOURS}`
-  ].join('\n'),
-  ajira: [
-    '\ud83d\udcbc *Ajira Portal Services*',
-    '',
-    'We assist with:',
-    '- Ajira account creation',
-    '- Job application submission',
-    '- CV and cover letter support',
-    '- Government job applications',
-    '- Application follow-up',
-    '',
-    `\ud83d\udcf1 Contact: *${CONTACT_NUMBER}*`,
-    `\ud83d\udd50 Hours: ${WORKING_HOURS}`
-  ].join('\n'),
-  research: [
-    '\ud83d\udcdd *Research & Academic Writing Support*',
-    '',
-    'We assist with:',
-    '- Research proposals',
-    '- Field reports',
-    '- Literature review support',
-    '- Data analysis guidance',
-    '- Thesis and dissertation formatting',
-    '',
-    `\ud83d\udcf1 Contact: *${CONTACT_NUMBER}*`,
-    `\ud83d\udd50 Hours: ${WORKING_HOURS}`
-  ].join('\n'),
-  visa: [
-    '\u2708\ufe0f *Visa Application Support*',
-    '',
-    'We assist with:',
-    '- Tourist visa applications',
-    '- Business visa applications',
-    '- Student visa applications',
-    '- Tracking and document preparation',
-    '',
-    'Typical requirements:',
-    '- Valid passport',
-    '- Passport photos',
-    '- Supporting documents',
-    '',
-    `\ud83d\udcf1 Contact: *${CONTACT_NUMBER}*`,
-    `\ud83d\udd50 Hours: ${WORKING_HOURS}`
-  ].join('\n'),
-  passport: [
-    '\ud83d\uded2 *Passport Application Support*',
-    '',
-    'We assist with:',
-    '- New passport applications',
-    '- Passport renewals',
-    '- Application follow-up',
-    '- Urgent passport support',
-    '',
-    'Typical requirements:',
-    '- Birth certificate',
-    '- National ID',
-    '- Passport photos',
-    '',
-    `\ud83d\udcf1 Contact: *${CONTACT_NUMBER}*`,
-    `\ud83d\udd50 Hours: ${WORKING_HOURS}`
-  ].join('\n'),
-  university: [
-    '\ud83c\udfeb *University Application Support*',
-    '',
-    'We assist with:',
-    '- TCU online applications',
-    '- Private university applications',
-    '- International university applications',
-    '- Scholarship applications',
-    '- Admission follow-up',
-    '',
-    `\ud83d\udcf1 Contact: *${CONTACT_NUMBER}*`,
-    `\ud83d\udd50 Hours: ${WORKING_HOURS}`
-  ].join('\n'),
-  services: [
-    '\ud83d\udccb *Mr. UTC Services*',
-    '',
-    '\ud83c\udf93 *heslb* - HESLB Loan Application',
-    '\ud83d\udcdc *rita* - RITA Birth & Death Certificate',
-    '\ud83d\udcbc *ajira* - Ajira Portal & Job Application',
-    '\ud83d\udcdd *research* - Research Proposal & Field Report',
-    '\u2708\ufe0f *visa* - Visa Application',
-    '\ud83d\uded2 *passport* - Passport Application',
-    '\ud83c\udfeb *university* - University Application',
-    '\ud83d\udcb0 *price* - Pricing information',
-    '\ud83d\udd50 *hours* - Working hours',
-    '',
-    `\ud83d\udcf1 Contact: *${CONTACT_NUMBER}*`
-  ].join('\n'),
-  price: [
-    '\ud83d\udcb0 *Pricing Information*',
-    '',
-    'Pricing depends on the type of service and the amount of work involved.',
-    'Message us directly for an accurate quotation and quick assistance.',
-    '',
-    `\ud83d\udcf1 Contact: *${CONTACT_NUMBER}*`,
-    `\ud83d\udd50 Hours: ${WORKING_HOURS}`
-  ].join('\n'),
-  hours: [
-    '\ud83d\udd50 *Working Hours*',
-    '',
-    WORKING_HOURS,
-    '',
-    'If you message outside working hours, we will still receive it and follow up as soon as possible.'
-  ].join('\n'),
-  hi: 'Hello and welcome to *Mr. UTC*. Reply with *services* to see everything we offer.',
-  hello: 'Hello and welcome to *Mr. UTC*. Reply with *services* to see everything we offer.',
-  habari: 'Karibu *Mr. UTC*. Andika *services* kuona huduma zote tunazotoa.',
-  help: 'Reply with any of these keywords: *heslb, rita, ajira, research, visa, passport, university, services, price, hours*.'
-}
+const ORDER_GUIDE_MESSAGE = [
+  '\ud83d\udce6 *Order Flow imeanza*',
+  '',
+  'Chagua service unayotaka kwa ku-reply keyword moja hapa chini:',
+  SERVICE_MENU,
+  '',
+  'Mfano: *visa*'
+].join('\n')
+
+const SILENT_KEYWORDS = new Set(['hey', 'hi', 'hello', 'mambo', 'niaje', 'habari', 'sasa', 'yo', 'bro'])
 
 let sock
 let messageLog = []
@@ -222,7 +89,10 @@ const runtimeState = {
   autoLikeActive: true,
   knownContacts: [],
   viewedStatuses: [],
-  repliedContacts: {}
+  repliedContacts: {},
+  orders: [],
+  orderSessions: {},
+  nextOrderNumber: 1
 }
 
 ensureDir(DATA_DIR)
@@ -242,8 +112,13 @@ function jidToPhone(jid) {
   return String(jid || '').split('@')[0].replace(/[^\d]/g, '')
 }
 
+function toUserJid(phone) {
+  const normalized = normalizePhone(phone)
+  return normalized ? `${normalized}@s.whatsapp.net` : null
+}
+
 function isAdmin(jid) {
-  return jidToPhone(jid).includes(ADMIN_NUMBER)
+  return jidToPhone(jid) === ADMIN_NUMBER
 }
 
 function isGroupJid(jid) {
@@ -265,10 +140,55 @@ function getTextFromMessage(msg) {
   ).trim()
 }
 
+function normalizeInput(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function simplifyText(text) {
+  return normalizeInput(text).replace(/[^a-z0-9 ]/g, '').trim()
+}
+
+function formatServiceListInline() {
+  return SERVICE_CATALOG.map((service) => service.key).join(', ')
+}
+
+function getServiceByText(text) {
+  const normalized = simplifyText(text)
+  return SERVICE_MAP[normalized] || null
+}
+
+function isBusinessIntent(text) {
+  const normalized = simplifyText(text)
+  if (!normalized || SILENT_KEYWORDS.has(normalized)) {
+    return false
+  }
+
+  if (['order', 'menu', 'services', 'help', 'price', 'hours'].includes(normalized)) {
+    return true
+  }
+
+  return Boolean(getServiceByText(normalized))
+}
+
 function getStatusFingerprint(msg) {
   const participant = msg?.key?.participant || 'unknown'
   const statusId = msg?.key?.id || 'no-id'
   return `${participant}:${statusId}`
+}
+
+function getStorageSnapshot() {
+  return {
+    authDir: path.resolve(AUTH_DIR),
+    dataDir: path.resolve(DATA_DIR),
+    authDirExists: fs.existsSync(AUTH_DIR),
+    dataDirExists: fs.existsSync(DATA_DIR),
+    authFileCount: fs.existsSync(AUTH_DIR) ? fs.readdirSync(AUTH_DIR).length : 0,
+    hasCredsFile: fs.existsSync(path.join(AUTH_DIR, 'creds.json')),
+    hasStateFile: fs.existsSync(STATE_FILE)
+  }
 }
 
 function loadState() {
@@ -288,6 +208,11 @@ function loadState() {
     runtimeState.repliedContacts = raw.repliedContacts && typeof raw.repliedContacts === 'object'
       ? raw.repliedContacts
       : {}
+    runtimeState.orders = Array.isArray(raw.orders) ? raw.orders.slice(-ORDER_RETENTION_LIMIT) : []
+    runtimeState.orderSessions = raw.orderSessions && typeof raw.orderSessions === 'object'
+      ? raw.orderSessions
+      : {}
+    runtimeState.nextOrderNumber = Number(raw.nextOrderNumber || runtimeState.orders.length + 1)
   } catch (error) {
     log(`State load warning: ${error.message}`)
     saveState()
@@ -302,7 +227,10 @@ function saveState() {
     autoLikeActive: runtimeState.autoLikeActive,
     knownContacts: runtimeState.knownContacts.slice(-5000),
     viewedStatuses: runtimeState.viewedStatuses.slice(-500),
-    repliedContacts: runtimeState.repliedContacts
+    repliedContacts: runtimeState.repliedContacts,
+    orders: runtimeState.orders.slice(-ORDER_RETENTION_LIMIT),
+    orderSessions: runtimeState.orderSessions,
+    nextOrderNumber: runtimeState.nextOrderNumber
   }
 
   fs.writeFileSync(STATE_FILE, JSON.stringify(stateToSave, null, 2))
@@ -381,7 +309,10 @@ function getConnectionSnapshot() {
     hasQr: Boolean(latestQrDataUrl),
     hasPairingCode: Boolean(latestPairingCode),
     knownContacts: runtimeState.knownContacts.length,
-    uptimeSeconds: Math.round(process.uptime())
+    activeOrderSessions: Object.keys(runtimeState.orderSessions).length,
+    ordersStored: runtimeState.orders.length,
+    uptimeSeconds: Math.round(process.uptime()),
+    storage: getStorageSnapshot()
   }
 }
 
@@ -418,6 +349,16 @@ async function sendText(jid, text) {
   }
 }
 
+async function notifyAdmin(text) {
+  const adminJid = toUserJid(ADMIN_NUMBER)
+  if (!adminJid) {
+    log('Admin notification skipped because ADMIN_NUMBER is missing.')
+    return false
+  }
+
+  return sendText(adminJid, text)
+}
+
 function rememberContact(jid) {
   const phone = jidToPhone(jid)
   if (!phone) {
@@ -426,31 +367,12 @@ function rememberContact(jid) {
 
   if (!runtimeState.knownContacts.includes(phone)) {
     runtimeState.knownContacts.push(phone)
+    runtimeState.repliedContacts[phone] = Date.now()
     saveState()
     return true
   }
 
   return false
-}
-
-function shouldSendCooldownReply(jid) {
-  const phone = jidToPhone(jid)
-  if (!phone) {
-    return false
-  }
-
-  const lastReplyAt = Number(runtimeState.repliedContacts[phone] || 0)
-  return Date.now() - lastReplyAt >= AUTO_REPLY_COOLDOWN_MS
-}
-
-function touchReplyCooldown(jid) {
-  const phone = jidToPhone(jid)
-  if (!phone) {
-    return
-  }
-
-  runtimeState.repliedContacts[phone] = Date.now()
-  saveState()
 }
 
 function markStatusSeen(fingerprint) {
@@ -464,97 +386,399 @@ function markStatusSeen(fingerprint) {
   return true
 }
 
-async function handleAdminCommand(from, command) {
-  const cmd = command.toLowerCase().trim()
+function getOrderSession(jid) {
+  return runtimeState.orderSessions[jidToPhone(jid)] || null
+}
 
-  if (cmd === '!status') {
+function setOrderSession(jid, session) {
+  runtimeState.orderSessions[jidToPhone(jid)] = {
+    ...session,
+    updatedAt: new Date().toISOString()
+  }
+  saveState()
+}
+
+function clearOrderSession(jid) {
+  delete runtimeState.orderSessions[jidToPhone(jid)]
+  saveState()
+}
+
+function createEmptyOrderDraft(jid) {
+  return {
+    customerPhone: jidToPhone(jid),
+    serviceKey: null,
+    serviceLabel: null,
+    fullName: null,
+    details: null,
+    urgency: null,
+    createdAt: new Date().toISOString()
+  }
+}
+
+function createOrderId() {
+  const id = `MRUTC-${String(runtimeState.nextOrderNumber).padStart(4, '0')}`
+  runtimeState.nextOrderNumber += 1
+  return id
+}
+
+function formatOrderSummary(order) {
+  return [
+    `Order ID: *${order.id || 'Draft'}*`,
+    `Customer: *${order.fullName || 'Not set'}*`,
+    `Phone: *${order.customerPhone || 'Unknown'}*`,
+    `Service: *${order.serviceLabel || 'Not selected'}*`,
+    `Details: ${order.details || 'Not provided'}`,
+    `Timeline / urgency: ${order.urgency || 'Not provided'}`,
+    `Status: *${order.status || 'Draft'}*`,
+    `Created: ${order.createdAt || new Date().toISOString()}`
+  ].join('\n')
+}
+
+function startOrderFlow(jid, initialService) {
+  const draft = createEmptyOrderDraft(jid)
+  if (initialService) {
+    draft.serviceKey = initialService.key
+    draft.serviceLabel = initialService.label
+  }
+
+  setOrderSession(jid, {
+    step: initialService ? 'full_name' : 'service',
+    order: draft
+  })
+}
+
+async function sendOrderPrompt(jid, step, session) {
+  if (step === 'service') {
+    await sendText(jid, ORDER_GUIDE_MESSAGE)
+    return
+  }
+
+  if (step === 'full_name') {
+    await sendText(
+      jid,
+      `Sawa \ud83d\udc4c Tumekusave kwenye *${session.order.serviceLabel}*.\n\nTuma *majina yako kamili* kama yatatumika kwenye order.`
+    )
+    return
+  }
+
+  if (step === 'details') {
+    await sendText(
+      jid,
+      [
+        `Nice, *${session.order.fullName}*.`,
+        '',
+        'Sasa eleza order yako vizuri kidogo.',
+        'Andika details muhimu tu: unahitaji nini exactly, documents ulizonazo, na chochote kinachotakiwa tujue.'
+      ].join('\n')
+    )
+    return
+  }
+
+  if (step === 'urgency') {
+    await sendText(
+      jid,
+      'Order details zimepokelewa.\n\nTuambie *timeline* yako: unaitaka lini au ni urgent kiasi gani?'
+    )
+    return
+  }
+
+  if (step === 'confirm') {
+    await sendText(
+      jid,
+      [
+        '\ud83d\udccb *Order review*',
+        '',
+        formatOrderSummary({ ...session.order, status: 'Pending confirmation' }),
+        '',
+        'Reply *confirm* ku-submit order.',
+        'Reply *edit* kuanza upya.',
+        'Reply *cancel* kufuta order.'
+      ].join('\n')
+    )
+  }
+}
+
+async function handleOrderFlow(jid, text, session) {
+  const normalized = simplifyText(text)
+
+  if (normalized === 'cancel') {
+    clearOrderSession(jid)
+    await sendText(jid, 'Order ime-cancelled. Ukiwa ready tena, reply *order*.')
+    return true
+  }
+
+  if (normalized === 'edit' && session.step === 'confirm') {
+    startOrderFlow(jid, null)
+    await sendOrderPrompt(jid, 'service', getOrderSession(jid))
+    return true
+  }
+
+  if (session.step === 'service') {
+    const service = getServiceByText(normalized)
+    if (!service) {
+      await sendText(jid, `Please chagua service sahihi: ${formatServiceListInline()}.`)
+      return true
+    }
+
+    session.order.serviceKey = service.key
+    session.order.serviceLabel = service.label
+    session.step = 'full_name'
+    setOrderSession(jid, session)
+    await sendOrderPrompt(jid, 'full_name', session)
+    return true
+  }
+
+  if (session.step === 'full_name') {
+    if (text.trim().length < 5 || text.trim().split(/\s+/).length < 2) {
+      await sendText(jid, 'Tafadhali tuma *majina mawili au zaidi* ili tuweke order vizuri.')
+      return true
+    }
+
+    session.order.fullName = text.trim()
+    session.step = 'details'
+    setOrderSession(jid, session)
+    await sendOrderPrompt(jid, 'details', session)
+    return true
+  }
+
+  if (session.step === 'details') {
+    if (text.trim().length < 10) {
+      await sendText(jid, 'Details bado ni short sana. Tafadhali eleza order vizuri kidogo.')
+      return true
+    }
+
+    session.order.details = text.trim()
+    session.step = 'urgency'
+    setOrderSession(jid, session)
+    await sendOrderPrompt(jid, 'urgency', session)
+    return true
+  }
+
+  if (session.step === 'urgency') {
+    if (text.trim().length < 3) {
+      await sendText(jid, 'Tafadhali tuma timeline au urgency yako kwa kifupi.')
+      return true
+    }
+
+    session.order.urgency = text.trim()
+    session.step = 'confirm'
+    setOrderSession(jid, session)
+    await sendOrderPrompt(jid, 'confirm', session)
+    return true
+  }
+
+  if (session.step === 'confirm') {
+    if (normalized === 'confirm') {
+      const order = {
+        ...session.order,
+        id: createOrderId(),
+        status: 'New',
+        submittedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+
+      runtimeState.orders.push(order)
+      runtimeState.orders = runtimeState.orders.slice(-ORDER_RETENTION_LIMIT)
+      clearOrderSession(jid)
+      saveState()
+
+      await sendText(
+        jid,
+        [
+          '\u2705 *Order yako imepokelewa*',
+          '',
+          `Order ID yako ni *${order.id}*.`,
+          'Team yetu ita-review na kukurudia soon.',
+          `Kwa follow-up ya haraka unaweza pia kutumia *${CONTACT_NUMBER}*.`
+        ].join('\n')
+      )
+
+      await notifyAdmin(
+        [
+          '\ud83d\udea8 *New Order Received*',
+          '',
+          formatOrderSummary(order)
+        ].join('\n')
+      )
+      log(`Order submitted: ${order.id} from ${order.customerPhone}`)
+      return true
+    }
+
+    await sendText(jid, 'Reply *confirm*, *edit*, au *cancel* kwenye order review.')
+    return true
+  }
+
+  return false
+}
+
+function getRecentOrders(limit = 5) {
+  return runtimeState.orders.slice(-limit).reverse()
+}
+
+async function handleAdminCommand(from, command) {
+  const trimmed = command.trim()
+  const normalized = simplifyText(trimmed)
+
+  if (normalized === 'status' || normalized === 'bot status' || normalized === '!status') {
     await sendText(
       from,
       [
         `*${BOT_NAME} Status*`,
         '',
         `Bot: ${runtimeState.botActive ? 'ON' : 'OFF'}`,
-        `Auto reply: ${runtimeState.autoReplyActive ? 'ON' : 'OFF'}`,
+        `Connection: ${connectionState.status}`,
+        `Auto welcome: ${runtimeState.autoReplyActive ? 'ON' : 'OFF'}`,
         `Auto view status: ${runtimeState.autoViewActive ? 'ON' : 'OFF'}`,
         `Auto react status: ${runtimeState.autoLikeActive ? `ON (${STATUS_REACTION})` : 'OFF'}`,
         `Known contacts: ${runtimeState.knownContacts.length}`,
-        `Viewed statuses tracked: ${runtimeState.viewedStatuses.length}`,
-        `Recent logs in memory: ${messageLog.length}`
+        `Active order sessions: ${Object.keys(runtimeState.orderSessions).length}`,
+        `Stored orders: ${runtimeState.orders.length}`,
+        `Auth files: ${getStorageSnapshot().authFileCount}`,
+        `Has creds.json: ${getStorageSnapshot().hasCredsFile ? 'YES' : 'NO'}`
       ].join('\n')
     )
     return true
   }
 
-  if (cmd === '!on') {
+  if (normalized === 'on' || normalized === '!on') {
     runtimeState.botActive = true
     saveState()
-    await sendText(from, 'Bot is now ON.')
+    await sendText(from, 'Bot iko ON sasa.')
     return true
   }
 
-  if (cmd === '!off') {
+  if (normalized === 'off' || normalized === '!off') {
     runtimeState.botActive = false
     saveState()
-    await sendText(from, 'Bot is now OFF.')
+    await sendText(from, 'Bot iko OFF sasa.')
     return true
   }
 
-  if (cmd === '!reply on') {
+  if (normalized === 'welcome on' || normalized === '!reply on') {
     runtimeState.autoReplyActive = true
     saveState()
-    await sendText(from, 'Auto reply is now ON.')
+    await sendText(from, 'First-time welcome iko ON.')
     return true
   }
 
-  if (cmd === '!reply off') {
+  if (normalized === 'welcome off' || normalized === '!reply off') {
     runtimeState.autoReplyActive = false
     saveState()
-    await sendText(from, 'Auto reply is now OFF.')
+    await sendText(from, 'First-time welcome iko OFF.')
     return true
   }
 
-  if (cmd === '!view on') {
+  if (normalized === 'view on' || normalized === '!view on') {
     runtimeState.autoViewActive = true
     saveState()
-    await sendText(from, 'Auto status view is now ON.')
+    await sendText(from, 'Auto-view status iko ON.')
     return true
   }
 
-  if (cmd === '!view off') {
+  if (normalized === 'view off' || normalized === '!view off') {
     runtimeState.autoViewActive = false
     saveState()
-    await sendText(from, 'Auto status view is now OFF.')
+    await sendText(from, 'Auto-view status iko OFF.')
     return true
   }
 
-  if (cmd === '!like on') {
+  if (normalized === 'like on' || normalized === '!like on') {
     runtimeState.autoLikeActive = true
     saveState()
-    await sendText(from, `Auto status reaction is now ON (${STATUS_REACTION}).`)
+    await sendText(from, `Auto-react status iko ON (${STATUS_REACTION}).`)
     return true
   }
 
-  if (cmd === '!like off') {
+  if (normalized === 'like off' || normalized === '!like off') {
     runtimeState.autoLikeActive = false
     saveState()
-    await sendText(from, 'Auto status reaction is now OFF.')
+    await sendText(from, 'Auto-react status iko OFF.')
     return true
   }
 
-  if (cmd === '!logs') {
+  if (normalized === 'orders' || normalized === '!orders') {
+    const orders = getRecentOrders(5)
+    await sendText(
+      from,
+      orders.length
+        ? [
+            '*Recent Orders*',
+            '',
+            ...orders.map(
+              (order) =>
+                `${order.id} | ${order.fullName} | ${order.serviceKey} | ${order.status} | ${order.customerPhone}`
+            )
+          ].join('\n')
+        : 'Hakuna order bado.'
+    )
+    return true
+  }
+
+  if (normalized.startsWith('order ') || normalized.startsWith('!order ')) {
+    const orderId = trimmed.split(/\s+/).slice(1).join(' ').trim().toUpperCase()
+    const order = runtimeState.orders.find((item) => item.id === orderId)
+    await sendText(from, order ? formatOrderSummary(order) : `Sijaona order yenye ID *${orderId}*.`)
+    return true
+  }
+
+  if (normalized === 'sessions' || normalized === '!sessions') {
+    const sessions = Object.entries(runtimeState.orderSessions)
+    await sendText(
+      from,
+      sessions.length
+        ? [
+            '*Active Order Sessions*',
+            '',
+            ...sessions.map(([phone, session]) => `${phone} | step: ${session.step} | service: ${session.order.serviceKey || 'none'}`)
+          ].join('\n')
+        : 'Hakuna active order session right now.'
+    )
+    return true
+  }
+
+  if (normalized.startsWith('clear session ') || normalized.startsWith('!clear session ')) {
+    const phone = normalizePhone(trimmed.split(/\s+/).slice(2).join(' '))
+    if (phone && runtimeState.orderSessions[phone]) {
+      delete runtimeState.orderSessions[phone]
+      saveState()
+      await sendText(from, `Session ya ${phone} imefutwa.`)
+    } else {
+      await sendText(from, 'Sijaona session ya hiyo namba.')
+    }
+    return true
+  }
+
+  if (normalized === 'storage' || normalized === '!storage') {
+    const storage = getStorageSnapshot()
+    await sendText(
+      from,
+      [
+        '*Storage Snapshot*',
+        '',
+        `Auth dir: ${storage.authDir}`,
+        `Data dir: ${storage.dataDir}`,
+        `Auth files: ${storage.authFileCount}`,
+        `Has creds.json: ${storage.hasCredsFile ? 'YES' : 'NO'}`,
+        `Has state file: ${storage.hasStateFile ? 'YES' : 'NO'}`
+      ].join('\n')
+    )
+    return true
+  }
+
+  if (normalized === 'logs' || normalized === '!logs') {
     const lastLogs = messageLog.slice(-10).join('\n')
     await sendText(from, `*Last 10 logs*\n\n${lastLogs || 'No logs recorded yet.'}`)
     return true
   }
 
-  if (cmd === '!clearlogs') {
+  if (normalized === 'clearlogs' || normalized === '!clearlogs') {
     messageLog = []
     fs.writeFileSync(LOG_FILE, '')
-    await sendText(from, 'Logs cleared successfully.')
+    await sendText(from, 'Logs zimefutwa.')
     return true
   }
 
-  if (cmd === '!help') {
+  if (normalized === 'help' || normalized === '!help') {
     await sendText(
       from,
       [
@@ -565,6 +789,11 @@ async function handleAdminCommand(from, command) {
         '!reply on / !reply off',
         '!view on / !view off',
         '!like on / !like off',
+        '!orders',
+        '!order MRUTC-0001',
+        '!sessions',
+        '!clear session 2557xxxxxxx',
+        '!storage',
         '!logs',
         '!clearlogs'
       ].join('\n')
@@ -621,35 +850,59 @@ async function handleDirectMessage(msg) {
     return
   }
 
-  const isNewContact = rememberContact(from)
-  const normalized = text.toLowerCase()
-
-  if (isNewContact && runtimeState.autoReplyActive) {
-    const sent = await sendText(from, AUTO_REPLY_MESSAGE)
-    if (sent) {
-      touchReplyCooldown(from)
-      log(`Welcome services menu sent to new contact: ${from}`)
-    }
+  const session = getOrderSession(from)
+  if (session) {
+    await handleOrderFlow(from, text, session)
     return
   }
 
-  for (const [keyword, response] of Object.entries(KEYWORD_REPLIES)) {
-    if (normalized.includes(keyword)) {
-      const sent = await sendText(from, response)
-      if (sent) {
-        touchReplyCooldown(from)
-        log(`Keyword reply sent for "${keyword}" to ${from}`)
-      }
-      return
-    }
+  const normalized = simplifyText(text)
+  const service = getServiceByText(normalized)
+  const isNewContact = rememberContact(from)
+
+  if (isNewContact && runtimeState.autoReplyActive) {
+    await sendText(from, FIRST_CONTACT_MESSAGE)
+    log(`Welcome message sent to new contact: ${from}`)
+    return
   }
 
-  if (runtimeState.autoReplyActive && shouldSendCooldownReply(from)) {
-    const sent = await sendText(from, AUTO_REPLY_MESSAGE)
-    if (sent) {
-      touchReplyCooldown(from)
-      log(`Fallback services menu sent to ${from}`)
-    }
+  if (normalized === 'order') {
+    startOrderFlow(from, null)
+    await sendOrderPrompt(from, 'service', getOrderSession(from))
+    return
+  }
+
+  if (service) {
+    startOrderFlow(from, service)
+    await sendOrderPrompt(from, 'full_name', getOrderSession(from))
+    return
+  }
+
+  if (normalized === 'services' || normalized === 'menu' || normalized === 'help') {
+    await sendText(from, ORDER_GUIDE_MESSAGE)
+    return
+  }
+
+  if (normalized === 'hours') {
+    await sendText(from, `\ud83d\udd50 *Working Hours*\n\n${WORKING_HOURS}`)
+    return
+  }
+
+  if (normalized === 'price') {
+    await sendText(
+      from,
+      [
+        '\ud83d\udcb0 *Pricing info*',
+        '',
+        'Bei inategemea service na ugumu wa kazi.',
+        `Kwa exact quotation, text *order* au reach us direct kupitia *${CONTACT_NUMBER}*.`
+      ].join('\n')
+    )
+    return
+  }
+
+  if (!isBusinessIntent(text)) {
+    log(`Silenced non-business message from ${from}`)
   }
 }
 
@@ -683,7 +936,10 @@ async function startBot() {
     getMessage: async () => ({ conversation: '' })
   })
 
-  sock.ev.on('creds.update', saveCreds)
+  sock.ev.on('creds.update', async () => {
+    await saveCreds()
+    log('Credentials updated and saved.')
+  })
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update
@@ -759,6 +1015,12 @@ function startHealthServer() {
     if (req.url === '/connection-status') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(getConnectionSnapshot()))
+      return
+    }
+
+    if (req.url === '/storage-status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(getStorageSnapshot()))
       return
     }
 
@@ -857,7 +1119,7 @@ function startHealthServer() {
     <div class="card">
       <h1>${BOT_NAME}</h1>
       <p class="status">Status: ${connectionState.status}</p>
-      <p class="muted">Open <code>/connection-status</code> for JSON status, <code>/qr</code> for PNG, <code>/qr.svg</code> for the sharpest QR, or <code>/pairing-code</code> to generate a WhatsApp pairing code.</p>
+      <p class="muted">Use <code>/connection-status</code> to confirm Railway is connected, <code>/storage-status</code> to verify persistence, <code>/qr.svg</code> for the sharpest QR, and <code>/pairing-code</code> for phone-number pairing when needed.</p>
       ${latestQrDataUrl ? `<p><img src="${latestQrDataUrl}" alt="WhatsApp QR code" /></p>` : '<p>No active QR right now. If the bot is already connected, this is expected.</p>'}
       ${latestPairingCode ? `<p><strong>Latest pairing code:</strong> <code>${latestPairingCode}</code></p>` : ''}
     </div>

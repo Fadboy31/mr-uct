@@ -4,13 +4,14 @@ This bot is prepared for 24/7 deployment on Railway using Baileys.
 
 ## Features
 
-- Professional first-contact welcome message for new phone numbers
-- Keyword-based service replies
+- First-contact-only welcome flow
+- Quiet mode for random or personal chats
+- Swanglish order workflow with step-by-step prompts
+- Admin notification whenever a new order is confirmed
 - Auto-view status with unique handling
 - Auto-react to viewed status with `🔥`
-- Persistent contact and status tracking
-- Health endpoint for Railway on `/health`
-- Admin commands for bot control
+- Persistent contact, order, and session tracking
+- Railway connection endpoints on `/health`, `/connection-status`, and `/storage-status`
 
 ## Local run
 
@@ -26,7 +27,7 @@ This bot is prepared for 24/7 deployment on Railway using Baileys.
 3. Set the start command to `npm start` if Railway does not detect it automatically.
 4. Add a persistent volume and keep `AUTH_DIR=auth_mrutc` so the WhatsApp session survives restarts.
 5. Add any environment variables you want to customize from `.env.example`.
-6. Deploy and open `/health` to confirm the worker is alive.
+6. Deploy and open `/connection-status` plus `/storage-status` to confirm the worker and storage are alive.
 
 ## Admin commands
 
@@ -39,5 +40,10 @@ This bot is prepared for 24/7 deployment on Railway using Baileys.
 - `!view off`
 - `!like on`
 - `!like off`
+- `!orders`
+- `!order MRUTC-0001`
+- `!sessions`
+- `!clear session 2557xxxxxxx`
+- `!storage`
 - `!logs`
 - `!clearlogs`
