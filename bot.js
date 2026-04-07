@@ -6,6 +6,7 @@ const {
 } = require('@whiskeysockets/baileys')
 const P = require('pino')
 const qrcode = require('qrcode-terminal')
+const QRCode = require('qrcode')
 const fs = require('fs')
 const path = require('path')
 const http = require('http')
@@ -17,6 +18,8 @@ const AUTH_DIR = process.env.AUTH_DIR || 'auth_mrutc'
 const DATA_DIR = process.env.DATA_DIR || 'data'
 const LOG_FILE = process.env.LOG_FILE || 'mrutc_log.txt'
 const STATE_FILE = path.join(DATA_DIR, 'bot-state.json')
+const QR_IMAGE_FILE = path.join(DATA_DIR, 'latest-qr.png')
+const QR_TEXT_FILE = path.join(DATA_DIR, 'latest-qr.txt')
 const PORT = Number(process.env.PORT || 3000)
 const WORKING_HOURS =
   process.env.WORKING_HOURS ||
@@ -198,6 +201,15 @@ const KEYWORD_REPLIES = {
 let sock
 let messageLog = []
 let reconnectTimer = null
+let latestQrDataUrl = null
+let latestQrIssuedAt = null
+
+const connectionState = {
+  status: 'starting',
+  lastError: null,
+  lastDisconnectCode: null,
+  connectedAt: null
+}
 
 const runtimeState = {
   botActive: true,
@@ -294,12 +306,67 @@ function saveState() {
 
 function log(message) {
   const entry = `[${new Date().toISOString()}] ${message}`
-  console.log(entry)
+  safeConsoleLog(entry)
   messageLog.push(entry)
   if (messageLog.length > 200) {
     messageLog = messageLog.slice(-200)
   }
   fs.appendFileSync(LOG_FILE, `${entry}\n`)
+}
+
+function safeConsoleLog(message) {
+  try {
+    console.log(message)
+  } catch (error) {
+    if (error?.code !== 'EPIPE') {
+      throw error
+    }
+  }
+}
+
+async function saveQrArtifacts(qr) {
+  await QRCode.toFile(QR_IMAGE_FILE, qr, {
+    errorCorrectionLevel: 'H',
+    margin: 2,
+    scale: 10
+  })
+
+  const qrText = await QRCode.toString(qr, {
+    type: 'terminal',
+    small: true
+  })
+  fs.writeFileSync(QR_TEXT_FILE, qrText, 'utf8')
+  latestQrDataUrl = await QRCode.toDataURL(qr, {
+    errorCorrectionLevel: 'H',
+    margin: 2,
+    scale: 8
+  })
+  latestQrIssuedAt = new Date().toISOString()
+  log(`QR artifacts saved to ${QR_IMAGE_FILE} and ${QR_TEXT_FILE}`)
+}
+
+function clearQrArtifacts() {
+  latestQrDataUrl = null
+  latestQrIssuedAt = null
+
+  for (const filePath of [QR_IMAGE_FILE, QR_TEXT_FILE]) {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+    }
+  }
+}
+
+function getConnectionSnapshot() {
+  return {
+    status: connectionState.status,
+    lastError: connectionState.lastError,
+    lastDisconnectCode: connectionState.lastDisconnectCode,
+    connectedAt: connectionState.connectedAt,
+    latestQrIssuedAt,
+    hasQr: Boolean(latestQrDataUrl),
+    knownContacts: runtimeState.knownContacts.length,
+    uptimeSeconds: Math.round(process.uptime())
+  }
 }
 
 async function sendText(jid, text) {
@@ -570,6 +637,8 @@ async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
   const { version } = await fetchLatestBaileysVersion()
 
+  connectionState.status = 'starting'
+  connectionState.lastError = null
   log(`Starting ${BOT_NAME}...`)
 
   sock = makeWASocket({
@@ -586,17 +655,39 @@ async function startBot() {
     const { connection, lastDisconnect, qr } = update
 
     if (qr) {
-      console.log(`\n[${BOT_NAME}] Scan this QR code:\n`)
-      qrcode.generate(qr, { small: true })
+      connectionState.status = 'awaiting_qr_scan'
+      safeConsoleLog(`\n[${BOT_NAME}] Scan this QR code:\n`)
+      try {
+        qrcode.generate(qr, { small: true })
+      } catch (error) {
+        if (error?.code !== 'EPIPE') {
+          log(`QR terminal render error: ${error.message}`)
+        }
+      }
+
+      try {
+        await saveQrArtifacts(qr)
+      } catch (error) {
+        log(`QR file save error: ${error.message}`)
+      }
     }
 
     if (connection === 'open') {
+      connectionState.status = 'connected'
+      connectionState.connectedAt = new Date().toISOString()
+      connectionState.lastError = null
+      connectionState.lastDisconnectCode = null
+      clearQrArtifacts()
       log(`${BOT_NAME} connected successfully.`)
     }
 
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode
       const shouldReconnect = code !== DisconnectReason.loggedOut
+
+      connectionState.status = shouldReconnect ? 'reconnecting' : 'logged_out'
+      connectionState.lastDisconnectCode = code || null
+      connectionState.lastError = lastDisconnect?.error?.message || null
 
       log(`Connection closed. Code: ${code || 'unknown'} | Reconnect: ${shouldReconnect}`)
 
@@ -631,21 +722,67 @@ async function startBot() {
 
 function startHealthServer() {
   const server = http.createServer((req, res) => {
-    if (req.url === '/health') {
+    if (req.url === '/connection-status') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(
-        JSON.stringify({
-          ok: true,
-          botName: BOT_NAME,
-          knownContacts: runtimeState.knownContacts.length,
-          uptimeSeconds: Math.round(process.uptime())
-        })
-      )
+      res.end(JSON.stringify(getConnectionSnapshot()))
       return
     }
 
-    res.writeHead(200, { 'Content-Type': 'text/plain' })
-    res.end(`${BOT_NAME} is running.`)
+    if (req.url === '/qr') {
+      if (!latestQrDataUrl) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            ok: false,
+            message: 'No active QR right now. The bot may already be connected or not yet requesting a new scan.',
+            ...getConnectionSnapshot()
+          })
+        )
+        return
+      }
+
+      const imageBuffer = Buffer.from(latestQrDataUrl.split(',')[1], 'base64')
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'no-store'
+      })
+      res.end(imageBuffer)
+      return
+    }
+
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, botName: BOT_NAME, ...getConnectionSnapshot() }))
+      return
+    }
+
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${BOT_NAME}</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f7f4ed; color: #1c1c1c; margin: 0; padding: 24px; }
+      .card { max-width: 720px; margin: 0 auto; background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 12px 40px rgba(0,0,0,0.08); }
+      h1 { margin-top: 0; }
+      .status { display: inline-block; padding: 8px 12px; border-radius: 999px; background: #f1ede2; font-weight: 700; }
+      img { width: 100%; max-width: 360px; border-radius: 12px; border: 1px solid #ddd; background: white; }
+      a { color: #0c6b58; text-decoration: none; }
+      code { background: #f5f5f5; padding: 2px 6px; border-radius: 6px; }
+      .muted { color: #555; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>${BOT_NAME}</h1>
+      <p class="status">Status: ${connectionState.status}</p>
+      <p class="muted">Open <code>/connection-status</code> for JSON status or <code>/qr</code> for the live WhatsApp QR when the bot is awaiting scan.</p>
+      ${latestQrDataUrl ? `<p><img src="${latestQrDataUrl}" alt="WhatsApp QR code" /></p>` : '<p>No active QR right now. If the bot is already connected, this is expected.</p>'}
+    </div>
+  </body>
+</html>`)
   })
 
   server.listen(PORT, () => {
@@ -654,10 +791,14 @@ function startHealthServer() {
 }
 
 process.on('uncaughtException', (error) => {
+  if (error?.code === 'EPIPE') {
+    return
+  }
   log(`Uncaught exception: ${error.message}`)
 })
 
 process.on('unhandledRejection', (error) => {
+  connectionState.lastError = error?.message || String(error)
   log(`Unhandled rejection: ${error?.message || error}`)
 })
 
@@ -672,6 +813,8 @@ process.on('SIGTERM', () => {
 })
 
 startBot().catch((error) => {
+  connectionState.status = 'startup_failed'
+  connectionState.lastError = error.message
   log(`Initial startup failed: ${error.message}`)
   scheduleReconnect()
 })

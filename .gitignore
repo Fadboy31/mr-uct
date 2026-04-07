@@ -1,7 +1,7 @@
 node_modules/
 auth_mrutc/
+auth_mrutc_backup_*/
 data/
 mrutc_log.txt
 .env
 .railway/
-
