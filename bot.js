@@ -20,6 +20,7 @@ const LOG_FILE = process.env.LOG_FILE || 'mrutc_log.txt'
 const STATE_FILE = path.join(DATA_DIR, 'bot-state.json')
 const QR_IMAGE_FILE = path.join(DATA_DIR, 'latest-qr.png')
 const QR_TEXT_FILE = path.join(DATA_DIR, 'latest-qr.txt')
+const QR_SVG_FILE = path.join(DATA_DIR, 'latest-qr.svg')
 const PORT = Number(process.env.PORT || 3000)
 const WORKING_HOURS =
   process.env.WORKING_HOURS ||
@@ -203,6 +204,9 @@ let messageLog = []
 let reconnectTimer = null
 let latestQrDataUrl = null
 let latestQrIssuedAt = null
+let latestQrSvg = null
+let latestPairingCode = null
+let latestPairingCodeIssuedAt = null
 
 const connectionState = {
   status: 'starting',
@@ -328,7 +332,7 @@ async function saveQrArtifacts(qr) {
   await QRCode.toFile(QR_IMAGE_FILE, qr, {
     errorCorrectionLevel: 'H',
     margin: 2,
-    scale: 10
+    scale: 18
   })
 
   const qrText = await QRCode.toString(qr, {
@@ -336,20 +340,30 @@ async function saveQrArtifacts(qr) {
     small: true
   })
   fs.writeFileSync(QR_TEXT_FILE, qrText, 'utf8')
+  latestQrSvg = await QRCode.toString(qr, {
+    type: 'svg',
+    errorCorrectionLevel: 'H',
+    margin: 1,
+    width: 1600
+  })
+  fs.writeFileSync(QR_SVG_FILE, latestQrSvg, 'utf8')
   latestQrDataUrl = await QRCode.toDataURL(qr, {
     errorCorrectionLevel: 'H',
     margin: 2,
-    scale: 8
+    scale: 16
   })
   latestQrIssuedAt = new Date().toISOString()
-  log(`QR artifacts saved to ${QR_IMAGE_FILE} and ${QR_TEXT_FILE}`)
+  log(`QR artifacts saved to ${QR_IMAGE_FILE}, ${QR_SVG_FILE}, and ${QR_TEXT_FILE}`)
 }
 
 function clearQrArtifacts() {
   latestQrDataUrl = null
   latestQrIssuedAt = null
+  latestQrSvg = null
+  latestPairingCode = null
+  latestPairingCodeIssuedAt = null
 
-  for (const filePath of [QR_IMAGE_FILE, QR_TEXT_FILE]) {
+  for (const filePath of [QR_IMAGE_FILE, QR_SVG_FILE, QR_TEXT_FILE]) {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath)
     }
@@ -363,10 +377,30 @@ function getConnectionSnapshot() {
     lastDisconnectCode: connectionState.lastDisconnectCode,
     connectedAt: connectionState.connectedAt,
     latestQrIssuedAt,
+    latestPairingCodeIssuedAt,
     hasQr: Boolean(latestQrDataUrl),
+    hasPairingCode: Boolean(latestPairingCode),
     knownContacts: runtimeState.knownContacts.length,
     uptimeSeconds: Math.round(process.uptime())
   }
+}
+
+async function generatePairingCode() {
+  if (!sock || typeof sock.requestPairingCode !== 'function') {
+    throw new Error('Pairing code is not available on this socket.')
+  }
+
+  const pairingNumber = ADMIN_NUMBER
+  if (!pairingNumber) {
+    throw new Error('ADMIN_NUMBER is not configured.')
+  }
+
+  const code = await sock.requestPairingCode(pairingNumber)
+  latestPairingCode = code
+  latestPairingCodeIssuedAt = new Date().toISOString()
+  connectionState.status = 'awaiting_pairing_code'
+  log(`Fresh pairing code generated for ${pairingNumber}`)
+  return code
 }
 
 async function sendText(jid, text) {
@@ -721,7 +755,7 @@ async function startBot() {
 }
 
 function startHealthServer() {
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     if (req.url === '/connection-status') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(getConnectionSnapshot()))
@@ -747,6 +781,51 @@ function startHealthServer() {
         'Cache-Control': 'no-store'
       })
       res.end(imageBuffer)
+      return
+    }
+
+    if (req.url === '/qr.svg') {
+      if (!latestQrSvg) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            ok: false,
+            message: 'No active SVG QR right now. The bot may already be connected or not yet requesting a new scan.',
+            ...getConnectionSnapshot()
+          })
+        )
+        return
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'image/svg+xml; charset=utf-8',
+        'Cache-Control': 'no-store'
+      })
+      res.end(latestQrSvg)
+      return
+    }
+
+    if (req.url === '/pairing-code') {
+      try {
+        const code = await generatePairingCode()
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+        res.end(
+          JSON.stringify({
+            ok: true,
+            pairingCode: code,
+            ...getConnectionSnapshot()
+          })
+        )
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            ok: false,
+            message: error.message,
+            ...getConnectionSnapshot()
+          })
+        )
+      }
       return
     }
 
@@ -778,8 +857,9 @@ function startHealthServer() {
     <div class="card">
       <h1>${BOT_NAME}</h1>
       <p class="status">Status: ${connectionState.status}</p>
-      <p class="muted">Open <code>/connection-status</code> for JSON status or <code>/qr</code> for the live WhatsApp QR when the bot is awaiting scan.</p>
+      <p class="muted">Open <code>/connection-status</code> for JSON status, <code>/qr</code> for PNG, <code>/qr.svg</code> for the sharpest QR, or <code>/pairing-code</code> to generate a WhatsApp pairing code.</p>
       ${latestQrDataUrl ? `<p><img src="${latestQrDataUrl}" alt="WhatsApp QR code" /></p>` : '<p>No active QR right now. If the bot is already connected, this is expected.</p>'}
+      ${latestPairingCode ? `<p><strong>Latest pairing code:</strong> <code>${latestPairingCode}</code></p>` : ''}
     </div>
   </body>
 </html>`)
