@@ -1,0 +1,7 @@
+node_modules/
+auth_mrutc/
+data/
+mrutc_log.txt
+.env
+.railway/
+
