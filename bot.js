@@ -13,6 +13,7 @@ const http = require('http')
 
 const BOT_NAME = process.env.BOT_NAME || 'Mr. UTC | Uni-Connect TZ Bot'
 const ADMIN_NUMBER = normalizePhone(process.env.ADMIN_NUMBER || '255710852376')
+const PAIRING_NUMBER = normalizePhone(process.env.PAIRING_NUMBER || ADMIN_NUMBER)
 const CONTACT_NUMBER = process.env.CONTACT_NUMBER || '+255710852376'
 const AUTH_DIR = process.env.AUTH_DIR || 'auth_mrutc'
 const DATA_DIR = process.env.DATA_DIR || 'data'
@@ -323,6 +324,7 @@ function getConnectionSnapshot() {
     latestPairingCodeIssuedAt,
     hasQr: Boolean(latestQrDataUrl),
     hasPairingCode: Boolean(latestPairingCode),
+    pairingNumber: PAIRING_NUMBER || null,
     knownContacts: runtimeState.knownContacts.length,
     activeOrderSessions: Object.keys(runtimeState.orderSessions).length,
     ordersStored: runtimeState.orders.length,
@@ -340,9 +342,9 @@ async function generatePairingCode() {
     throw new Error('Session is logged out. Reset auth first, then request a fresh pairing code.')
   }
 
-  const pairingNumber = ADMIN_NUMBER
+  const pairingNumber = PAIRING_NUMBER
   if (!pairingNumber) {
-    throw new Error('ADMIN_NUMBER is not configured.')
+    throw new Error('PAIRING_NUMBER is not configured.')
   }
 
   const code = await sock.requestPairingCode(pairingNumber)
