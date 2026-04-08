@@ -1,35 +1,60 @@
 # Mr. UTC WhatsApp Bot
 
-This bot is prepared for 24/7 deployment on Railway using Baileys.
+This rebuild is designed for `VPS + Baileys`, not Railway-first session hosting.
 
-## Features
+## What this keeps
 
 - First-contact-only welcome flow
 - Quiet mode for random or personal chats
 - Swanglish order workflow with step-by-step prompts
-- Admin notification whenever a new order is confirmed
+- Admin notification when a new order is confirmed
 - Auto-view status with unique handling
 - Auto-react to viewed status with `🔥`
 - Persistent contact, order, and session tracking
-- Railway connection endpoints on `/health`, `/connection-status`, and `/storage-status`
 
-## Local run
+## Structure
 
-1. Copy `.env.example` to `.env` if you want to override defaults.
-2. Install dependencies with `npm install`.
-3. Start with `npm start`.
-4. Scan the QR code once.
+- `bot.js` : small entrypoint
+- `src/app.js` : bot runtime, session recovery, HTTP tools
+- `src/config.js` : environment config
+- `src/store.js` : persistent state and session storage helpers
+- `src/copy.js` : message templates
+- `ecosystem.config.js` : PM2 config for VPS
 
-## Railway deploy
+## Environment
 
-1. Push this project to GitHub.
-2. Create a new Railway project from the repository.
-3. Set the start command to `npm start` if Railway does not detect it automatically.
-4. Add a persistent volume and keep `AUTH_DIR=auth_mrutc` so the WhatsApp session survives restarts.
-5. Add any environment variables you want to customize from `.env.example`.
-6. Deploy and open `/connection-status` plus `/storage-status` to confirm the worker and storage are alive.
+Copy `.env.example` to `.env` and set:
 
-## Admin commands
+- `ADMIN_NUMBER` : admin WhatsApp number
+- `PAIRING_NUMBER` : exact WhatsApp number you want to link
+- `AUTH_DIR=storage/session`
+- `DATA_DIR=storage/data`
+- `LOG_FILE=storage/logs/mrutc.log`
+
+## VPS Run
+
+1. Install Node.js 20+
+2. Run `npm install`
+3. Start once with `npm start`
+4. Open `http://YOUR_SERVER_IP:3000/pairing-code` or `http://YOUR_SERVER_IP:3000/qr.svg`
+5. Link the WhatsApp account
+6. Stop the temporary process
+7. Run with PM2:
+   `pm2 start ecosystem.config.js`
+8. Save PM2:
+   `pm2 save`
+
+## Useful Endpoints
+
+- `/health`
+- `/connection-status`
+- `/storage-status`
+- `/pairing-code`
+- `/qr`
+- `/qr.svg`
+- `/reset-session`
+
+## Admin Commands
 
 - `!status`
 - `!on`
@@ -41,9 +66,4 @@ This bot is prepared for 24/7 deployment on Railway using Baileys.
 - `!like on`
 - `!like off`
 - `!orders`
-- `!order MRUTC-0001`
-- `!sessions`
-- `!clear session 2557xxxxxxx`
 - `!storage`
-- `!logs`
-- `!clearlogs`

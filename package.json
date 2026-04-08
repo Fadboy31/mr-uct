@@ -1,12 +1,12 @@
 {
   "name": "mr-utc",
   "version": "1.0.0",
-  "description": "Production-ready WhatsApp bot for Mr. UTC with Railway deployment support",
+  "description": "VPS-ready WhatsApp bot for Mr. UTC using Baileys and persistent local storage",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
     "dev": "node bot.js",
-    "test": "node --check bot.js"
+    "test": "node --check bot.js && node --check src\\app.js && node --check src\\config.js && node --check src\\store.js && node --check src\\copy.js"
   },
   "keywords": [],
   "author": "Mr. UTC",

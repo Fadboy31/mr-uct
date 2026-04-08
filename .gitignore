@@ -5,3 +5,4 @@ data/
 mrutc_log.txt
 .env
 .railway/
+storage/
