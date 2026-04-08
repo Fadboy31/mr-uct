@@ -298,6 +298,21 @@ function clearQrArtifacts() {
   }
 }
 
+function clearAuthDirectory() {
+  if (!fs.existsSync(AUTH_DIR)) {
+    ensureDir(AUTH_DIR)
+    return
+  }
+
+  for (const entry of fs.readdirSync(AUTH_DIR)) {
+    const fullPath = path.join(AUTH_DIR, entry)
+    fs.rmSync(fullPath, { recursive: true, force: true })
+  }
+
+  ensureDir(AUTH_DIR)
+  log(`Auth directory cleared: ${path.resolve(AUTH_DIR)}`)
+}
+
 function getConnectionSnapshot() {
   return {
     status: connectionState.status,
@@ -319,6 +334,10 @@ function getConnectionSnapshot() {
 async function generatePairingCode() {
   if (!sock || typeof sock.requestPairingCode !== 'function') {
     throw new Error('Pairing code is not available on this socket.')
+  }
+
+  if (connectionState.status === 'logged_out') {
+    throw new Error('Session is logged out. Reset auth first, then request a fresh pairing code.')
   }
 
   const pairingNumber = ADMIN_NUMBER
@@ -985,6 +1004,11 @@ async function startBot() {
         scheduleReconnect()
       } else {
         log('Session logged out. Re-scan is required before reconnecting.')
+        if (!state.creds.registered || getStorageSnapshot().authFileCount <= 1) {
+          log('Detected invalid or partial auth state. Clearing auth directory for a clean reconnect.')
+          clearAuthDirectory()
+          scheduleReconnect()
+        }
       }
     }
   })
@@ -1021,6 +1045,24 @@ function startHealthServer() {
     if (req.url === '/storage-status') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(getStorageSnapshot()))
+      return
+    }
+
+    if (req.url === '/reset-auth') {
+      clearAuthDirectory()
+      clearQrArtifacts()
+      connectionState.status = 'resetting_auth'
+      connectionState.lastError = null
+      connectionState.lastDisconnectCode = null
+      scheduleReconnect()
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      res.end(
+        JSON.stringify({
+          ok: true,
+          message: 'Auth directory cleared. The bot is reconnecting and should request a fresh QR or pairing code shortly.',
+          ...getConnectionSnapshot()
+        })
+      )
       return
     }
 
@@ -1119,7 +1161,7 @@ function startHealthServer() {
     <div class="card">
       <h1>${BOT_NAME}</h1>
       <p class="status">Status: ${connectionState.status}</p>
-      <p class="muted">Use <code>/connection-status</code> to confirm Railway is connected, <code>/storage-status</code> to verify persistence, <code>/qr.svg</code> for the sharpest QR, and <code>/pairing-code</code> for phone-number pairing when needed.</p>
+      <p class="muted">Use <code>/connection-status</code> to confirm Railway is connected, <code>/storage-status</code> to verify persistence, <code>/reset-auth</code> to wipe a broken session, <code>/qr.svg</code> for the sharpest QR, and <code>/pairing-code</code> for phone-number pairing when needed.</p>
       ${latestQrDataUrl ? `<p><img src="${latestQrDataUrl}" alt="WhatsApp QR code" /></p>` : '<p>No active QR right now. If the bot is already connected, this is expected.</p>'}
       ${latestPairingCode ? `<p><strong>Latest pairing code:</strong> <code>${latestPairingCode}</code></p>` : ''}
     </div>
