@@ -1,10 +1,4 @@
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  Browsers
-} = require('@whiskeysockets/baileys')
-const P = require('pino')
+const { Client, LocalAuth } = require('whatsapp-web.js')
 const qrcode = require('qrcode-terminal')
 const QRCode = require('qrcode')
 const fs = require('fs')
@@ -17,8 +11,9 @@ const { hydrateSessionBundle } = require('./session-bundle')
 const store = createStore(config)
 
 const runtime = {
-  sock: null,
+  client: null,
   reconnectTimer: null,
+  initializing: false,
   latestQrDataUrl: null,
   latestQrSvg: null,
   latestQrIssuedAt: null,
@@ -37,7 +32,7 @@ function jidToPhone(jid) {
 }
 
 function toUserJid(phone) {
-  return phone ? `${phone}@s.whatsapp.net` : null
+  return phone ? `${phone}@c.us` : null
 }
 
 function simplifyText(text) {
@@ -60,19 +55,16 @@ function isStatusJid(jid) {
   return jid === 'status@broadcast'
 }
 
-function getTextFromMessage(msg) {
-  return (
-    msg.message?.conversation ||
-    msg.message?.extendedTextMessage?.text ||
-    msg.message?.imageMessage?.caption ||
-    msg.message?.videoMessage?.caption ||
-    msg.message?.documentMessage?.caption ||
-    ''
-  ).trim()
+function isStatusMessage(message) {
+  return Boolean(message?.isStatus) || isStatusJid(message?.from)
 }
 
-function getStatusFingerprint(msg) {
-  return `${msg?.key?.participant || 'unknown'}:${msg?.key?.id || 'no-id'}`
+function getTextFromMessage(message) {
+  return String(message?.body || '').trim()
+}
+
+function getStatusFingerprint(message) {
+  return `${message?.author || message?.from || 'unknown'}:${message?.id?._serialized || 'no-id'}`
 }
 
 function getServiceByText(text) {
@@ -167,11 +159,12 @@ function startOrderFlow(jid, initialService) {
 }
 
 async function sendText(jid, text) {
-  if (!runtime.sock) {
+  if (!runtime.client) {
     return false
   }
+
   try {
-    await runtime.sock.sendMessage(jid, { text })
+    await runtime.client.sendMessage(jid, text)
     return true
   } catch (error) {
     log(`Send error to ${jid}: ${error.message}`)
@@ -189,7 +182,7 @@ async function sendOrderPrompt(jid, step, session) {
     return
   }
   if (step === 'full_name') {
-    await sendText(jid, `Sawa \ud83d\udc4c Tumekuweka kwenye *${session.order.serviceLabel}*.\n\nTuma *majina yako kamili* kama yatatumika kwenye order.`)
+    await sendText(jid, `Sawa 👌 Tumekuweka kwenye *${session.order.serviceLabel}*.\n\nTuma *majina yako kamili* kama yatatumika kwenye order.`)
     return
   }
   if (step === 'details') {
@@ -211,7 +204,7 @@ async function sendOrderPrompt(jid, step, session) {
   await sendText(
     jid,
     [
-      '\ud83d\udccb *Order review*',
+      '📋 *Order review*',
       '',
       formatOrderSummary({ ...session.order, status: 'Pending confirmation' }),
       '',
@@ -307,14 +300,14 @@ async function handleOrderFlow(jid, text, session) {
   await sendText(
     jid,
     [
-      '\u2705 *Order yako imepokelewa*',
+      '✅ *Order yako imepokelewa*',
       '',
       `Order ID yako ni *${order.id}*.`,
       'Team yetu ita-review na kukurudia soon.',
       `Kwa follow-up ya haraka unaweza pia kutumia *${config.contactNumber}*.`
     ].join('\n')
   )
-  await notifyAdmin(['\ud83d\udea8 *New Order Received*', '', formatOrderSummary(order)].join('\n'))
+  await notifyAdmin(['🚨 *New Order Received*', '', formatOrderSummary(order)].join('\n'))
   return true
 }
 
@@ -338,7 +331,7 @@ async function handleAdminCommand(from, command) {
         `Active order sessions: ${Object.keys(store.state.orderSessions).length}`,
         `Stored orders: ${store.state.orders.length}`,
         `Session files: ${storage.sessionFileCount}`,
-        `Has creds.json: ${storage.hasCredsFile ? 'YES' : 'NO'}`
+        `Has session data: ${storage.hasSessionData ? 'YES' : 'NO'}`
       ].join('\n')
     )
     return true
@@ -421,7 +414,7 @@ async function handleAdminCommand(from, command) {
         `Session dir: ${storage.sessionDir}`,
         `Data dir: ${storage.dataDir}`,
         `Session files: ${storage.sessionFileCount}`,
-        `Has creds.json: ${storage.hasCredsFile ? 'YES' : 'NO'}`,
+        `Has session data: ${storage.hasSessionData ? 'YES' : 'NO'}`,
         `Has state file: ${storage.hasStateFile ? 'YES' : 'NO'}`
       ].join('\n')
     )
@@ -449,28 +442,26 @@ async function handleAdminCommand(from, command) {
   return false
 }
 
-async function handleStatusMessage(msg) {
-  if (!markStatusSeen(getStatusFingerprint(msg))) {
+async function handleStatusMessage(message) {
+  if (!markStatusSeen(getStatusFingerprint(message))) {
     return
   }
 
   try {
-    if (store.state.autoViewActive) {
-      await runtime.sock.readMessages([msg.key])
+    if (store.state.autoViewActive && message.from) {
+      await runtime.client.sendSeen(message.from)
     }
-    if (store.state.autoLikeActive) {
-      await runtime.sock.sendMessage('status@broadcast', {
-        react: { text: config.statusReaction, key: msg.key }
-      })
+    if (store.state.autoLikeActive && typeof message.react === 'function') {
+      await message.react(config.statusReaction)
     }
   } catch (error) {
     log(`Status handling error: ${error.message}`)
   }
 }
 
-async function handleDirectMessage(msg) {
-  const from = msg.key.remoteJid
-  const text = getTextFromMessage(msg)
+async function handleDirectMessage(message) {
+  const from = message.from
+  const text = getTextFromMessage(message)
   if (!text) {
     return
   }
@@ -519,7 +510,7 @@ async function handleDirectMessage(msg) {
   }
 
   if (normalized === 'hours') {
-    await sendText(from, `\ud83d\udd50 *Working Hours*\n\n${config.workingHours}`)
+    await sendText(from, `🕐 *Working Hours*\n\n${config.workingHours}`)
     return
   }
 
@@ -527,7 +518,7 @@ async function handleDirectMessage(msg) {
     await sendText(
       from,
       [
-        '\ud83d\udcb0 *Pricing info*',
+        '💰 *Pricing info*',
         '',
         'Bei inategemea service na ugumu wa kazi.',
         `Kwa exact quotation, text *order* au reach us direct kupitia *${config.contactNumber}*.`
@@ -542,13 +533,14 @@ async function handleDirectMessage(msg) {
 }
 
 function scheduleReconnect() {
-  if (runtime.reconnectTimer) {
+  if (runtime.reconnectTimer || runtime.initializing) {
     return
   }
 
+  log('Scheduling reconnect in 5 seconds...')
   runtime.reconnectTimer = setTimeout(() => {
     runtime.reconnectTimer = null
-    connectSocket().catch((error) => {
+    connectClient({ forceNew: true }).catch((error) => {
       log(`Reconnect failed: ${error.message}`)
       scheduleReconnect()
     })
@@ -615,97 +607,165 @@ function getConnectionSnapshot() {
 }
 
 async function generatePairingCode() {
-  if (!runtime.sock || typeof runtime.sock.requestPairingCode !== 'function') {
-    throw new Error('Pairing code is not available on this socket.')
-  }
-  if (runtime.connectionState.status === 'logged_out') {
-    throw new Error('Session is logged out. Reset the session first, then request a fresh pairing code.')
+  if (!runtime.client || typeof runtime.client.requestPairingCode !== 'function') {
+    throw new Error('Pairing code is not available on this client.')
   }
   if (!config.pairingNumber) {
     throw new Error('PAIRING_NUMBER is not configured.')
   }
 
-  const code = await runtime.sock.requestPairingCode(config.pairingNumber)
+  const code = await runtime.client.requestPairingCode(config.pairingNumber, true)
   runtime.latestPairingCode = code
   runtime.latestPairingCodeIssuedAt = new Date().toISOString()
   runtime.connectionState.status = 'awaiting_pairing_code'
   return code
 }
 
-async function connectSocket() {
-  const { state, saveCreds } = await useMultiFileAuthState(config.sessionDir)
+function buildClient() {
+  const linuxArgs = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-accelerated-2d-canvas',
+    '--disable-gpu',
+    '--no-first-run',
+    '--no-zygote',
+    '--single-process'
+  ]
 
+  const client = new Client({
+    authStrategy: new LocalAuth({
+      clientId: config.webClientId,
+      dataPath: config.sessionDir
+    }),
+    puppeteer: {
+      headless: true,
+      executablePath: config.chromeExecutablePath || undefined,
+      args: process.platform === 'linux' ? linuxArgs : []
+    }
+  })
+
+  client.on('qr', async (qr) => {
+    runtime.connectionState.status = 'awaiting_qr_scan'
+    runtime.connectionState.lastError = null
+    runtime.connectionState.lastDisconnectCode = null
+    qrcode.generate(qr, { small: true })
+    await saveQrArtifacts(qr)
+    log('QR code generated.')
+  })
+
+  client.on('authenticated', () => {
+    runtime.connectionState.status = 'authenticated'
+    runtime.connectionState.lastError = null
+    runtime.connectionState.lastDisconnectCode = null
+    log('WhatsApp session authenticated.')
+  })
+
+  client.on('ready', () => {
+    runtime.connectionState.status = 'connected'
+    runtime.connectionState.connectedAt = new Date().toISOString()
+    runtime.connectionState.lastError = null
+    runtime.connectionState.lastDisconnectCode = null
+    clearQrArtifacts()
+    log('WhatsApp client is ready.')
+  })
+
+  client.on('auth_failure', (message) => {
+    runtime.connectionState.status = 'auth_failure'
+    runtime.connectionState.lastError = message || 'Authentication failure'
+    runtime.connectionState.lastDisconnectCode = 401
+    log(`Auth failure: ${message || 'Authentication failure'}`)
+  })
+
+  client.on('loading_screen', (percent, message) => {
+    log(`Loading WhatsApp Web: ${percent}% ${message || ''}`.trim())
+  })
+
+  client.on('disconnected', async (reason) => {
+    const reasonText = String(reason || 'unknown')
+    const loggedOut = /logout/i.test(reasonText)
+
+    runtime.connectionState.status = loggedOut ? 'logged_out' : 'reconnecting'
+    runtime.connectionState.lastError = reasonText
+    runtime.connectionState.lastDisconnectCode = loggedOut ? 401 : 499
+    runtime.connectionState.connectedAt = null
+    log(`Client disconnected: ${reasonText}`)
+
+    if (loggedOut) {
+      return
+    }
+
+    scheduleReconnect()
+  })
+
+  client.on('message', async (message) => {
+    if (message.fromMe) {
+      return
+    }
+
+    if (isStatusMessage(message)) {
+      await handleStatusMessage(message)
+      return
+    }
+
+    if (isGroupJid(message.from)) {
+      return
+    }
+
+    await handleDirectMessage(message)
+  })
+
+  client.on('message_create', async (message) => {
+    if (message.fromMe || !isStatusMessage(message)) {
+      return
+    }
+    await handleStatusMessage(message)
+  })
+
+  return client
+}
+
+async function destroyClient() {
+  if (!runtime.client) {
+    return
+  }
+
+  try {
+    await runtime.client.destroy()
+  } catch (error) {
+    log(`Client destroy warning: ${error.message}`)
+  } finally {
+    runtime.client = null
+  }
+}
+
+async function connectClient({ forceNew = false } = {}) {
+  if (runtime.initializing) {
+    return
+  }
+
+  runtime.initializing = true
   runtime.connectionState.status = 'starting'
   runtime.connectionState.lastError = null
-  log(`Starting ${config.botName}...`)
+  runtime.connectionState.lastDisconnectCode = null
+  log(`Starting ${config.botName} with whatsapp-web.js...`)
 
-  runtime.sock = makeWASocket({
-    logger: P({ level: 'silent' }),
-    auth: state,
-    browser: Browsers.macOS('Google Chrome'),
-    printQRInTerminal: false,
-    markOnlineOnConnect: false,
-    syncFullHistory: false,
-    getMessage: async () => ({ conversation: '' })
-  })
-
-  runtime.sock.ev.on('creds.update', async () => {
-    await saveCreds()
-    log('Credentials updated and saved.')
-  })
-
-  runtime.sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update
-
-    if (qr) {
-      runtime.connectionState.status = 'awaiting_qr_scan'
-      qrcode.generate(qr, { small: true })
-      await saveQrArtifacts(qr)
+  try {
+    if (forceNew) {
+      await destroyClient()
     }
 
-    if (connection === 'open') {
-      runtime.connectionState.status = 'connected'
-      runtime.connectionState.connectedAt = new Date().toISOString()
-      runtime.connectionState.lastError = null
-      runtime.connectionState.lastDisconnectCode = null
-      clearQrArtifacts()
-    }
-
-    if (connection === 'close') {
-      const code = lastDisconnect?.error?.output?.statusCode
-      const shouldReconnect = code !== DisconnectReason.loggedOut
-
-      runtime.connectionState.status = shouldReconnect ? 'reconnecting' : 'logged_out'
-      runtime.connectionState.lastDisconnectCode = code || null
-      runtime.connectionState.lastError = lastDisconnect?.error?.message || null
-
-      if (shouldReconnect) {
-        scheduleReconnect()
-        return
-      }
-
-      const storage = store.getStorageSnapshot()
-      if (!state.creds.registered || storage.sessionFileCount <= 1) {
-        store.clearSessionDirectory()
-        scheduleReconnect()
-      }
-    }
-  })
-
-  runtime.sock.ev.on('messages.upsert', async ({ messages }) => {
-    const msg = messages?.[0]
-    if (!msg || !msg.message || msg.key.fromMe) {
-      return
-    }
-    if (isStatusJid(msg.key.remoteJid)) {
-      await handleStatusMessage(msg)
-      return
-    }
-    if (isGroupJid(msg.key.remoteJid)) {
-      return
-    }
-    await handleDirectMessage(msg)
-  })
+    runtime.client = buildClient()
+    await runtime.client.initialize()
+  } catch (error) {
+    runtime.connectionState.status = 'reconnecting'
+    runtime.connectionState.lastError = error.message
+    runtime.connectionState.lastDisconnectCode = null
+    log(`Client initialize failed: ${error.message}`)
+    scheduleReconnect()
+  } finally {
+    runtime.initializing = false
+  }
 }
 
 function renderHomePage() {
@@ -739,6 +799,7 @@ function startHttpServer() {
       return
     }
     if (req.url === '/reset-session') {
+      await destroyClient()
       store.clearSessionDirectory()
       clearQrArtifacts()
       runtime.connectionState.status = 'resetting_session'
@@ -816,7 +877,7 @@ async function start() {
   }
   registerProcessHandlers()
   startHttpServer()
-  await connectSocket()
+  await connectClient()
 }
 
 module.exports = { start }

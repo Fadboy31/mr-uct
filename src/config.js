@@ -1,4 +1,51 @@
 const path = require('path')
+const fs = require('fs')
+
+function loadEnvFile() {
+  const candidates = [path.resolve('.env')]
+
+  const rootEnv = path.resolve('.env')
+  if (fs.existsSync(rootEnv) && fs.statSync(rootEnv).isDirectory()) {
+    candidates.push(path.join(rootEnv, '.env'))
+  }
+
+  for (const filePath of candidates) {
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      continue
+    }
+
+    const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) {
+        continue
+      }
+
+      const separatorIndex = trimmed.indexOf('=')
+      if (separatorIndex === -1) {
+        continue
+      }
+
+      const key = trimmed.slice(0, separatorIndex).trim()
+      let value = trimmed.slice(separatorIndex + 1)
+
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1)
+      }
+
+      if (key && process.env[key] === undefined) {
+        process.env[key] = value
+      }
+    }
+
+    break
+  }
+}
+
+loadEnvFile()
 
 function normalizePhone(value) {
   return String(value || '').replace(/[^\d]/g, '')
@@ -23,6 +70,8 @@ const config = {
   sessionBundleB64: process.env.SESSION_BUNDLE_B64 || '',
   host: process.env.HOST || '127.0.0.1',
   port: Number(process.env.PORT || 3000),
+  chromeExecutablePath: process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_BIN || '',
+  webClientId: process.env.WEB_CLIENT_ID || 'mr-utc',
   statusReaction: '\ud83d\udd25',
   orderRetentionLimit: 300
 }

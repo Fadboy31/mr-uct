@@ -5,6 +5,30 @@ function ensureDir(dirPath) {
   fs.mkdirSync(path.resolve(dirPath), { recursive: true })
 }
 
+function listFilesRecursive(rootDir) {
+  if (!fs.existsSync(rootDir)) {
+    return []
+  }
+
+  const files = []
+
+  function walk(currentDir) {
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+      const fullPath = path.join(currentDir, entry.name)
+      if (entry.isDirectory()) {
+        walk(fullPath)
+        continue
+      }
+      if (entry.isFile()) {
+        files.push(fullPath)
+      }
+    }
+  }
+
+  walk(rootDir)
+  return files
+}
+
 function createStore(config) {
   const state = {
     botActive: true,
@@ -65,13 +89,20 @@ function createStore(config) {
   }
 
   function getStorageSnapshot() {
+    const sessionFiles = listFilesRecursive(config.sessionDir)
+    const hasSessionData =
+      sessionFiles.length > 0 ||
+      fs.existsSync(path.join(config.sessionDir, 'creds.json')) ||
+      fs.existsSync(path.join(config.sessionDir, `session-${config.webClientId}`))
+
     return {
       sessionDir: path.resolve(config.sessionDir),
       dataDir: path.resolve(config.dataDir),
       sessionDirExists: fs.existsSync(config.sessionDir),
       dataDirExists: fs.existsSync(config.dataDir),
-      sessionFileCount: fs.existsSync(config.sessionDir) ? fs.readdirSync(config.sessionDir).length : 0,
-      hasCredsFile: fs.existsSync(path.join(config.sessionDir, 'creds.json')),
+      sessionFileCount: sessionFiles.length,
+      hasCredsFile: hasSessionData,
+      hasSessionData,
       hasStateFile: fs.existsSync(config.stateFile)
     }
   }

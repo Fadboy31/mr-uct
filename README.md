@@ -1,6 +1,6 @@
 # Mr. UTC WhatsApp Bot
 
-This bot uses Baileys, so it must run on an always-on server with persistent storage for the WhatsApp session files and order state.
+This bot now uses `whatsapp-web.js` with persistent browser auth storage, so it must run on an always-on server with persistent storage for the WhatsApp session files and bot state.
 
 ## Best deployment target
 
@@ -40,15 +40,19 @@ Copy `.env.example` to `.env` and set:
 - `PAIRING_NUMBER`
 - `HOST`
 - `PORT`
+- `WEB_CLIENT_ID`
 
 Optional storage vars:
 
 - `AUTH_DIR`
 - `DATA_DIR`
 - `LOG_FILE`
+- `SESSION_BUNDLE_B64`
+- `PUPPETEER_EXECUTABLE_PATH`
 
 Default local values are set for `storage/...`.
 For Railway or Render, setting only `DATA_DIR=/data` is enough for the bot to keep session files in `/data/session`, app state in `/data`, and logs in `/data/logs`.
+Railway Docker already sets `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`.
 
 ## Local run
 
@@ -68,7 +72,7 @@ When you want a clean WhatsApp login without old session leftovers:
 npm run start:fresh
 ```
 
-This clears only the stored WhatsApp auth session and old QR artifacts, then starts the bot again so you get a fresh QR or pairing code.
+This clears only the stored WhatsApp browser session and old QR artifacts, then starts the bot again so you get a fresh QR or pairing code.
 
 ## Session bootstrap fallback
 
@@ -96,6 +100,8 @@ If your cloud host refuses to generate a usable QR or pairing code, you can boot
 8. If you prefer code linking, open `/pairing-code`.
 9. If the old session is broken, call `/reset-session` once and then fetch `/qr` or `/pairing-code` again.
 10. Use `/connection-status` and `/storage-status` for quick live checks.
+
+Railway uses the included [Dockerfile](C:/Users/MelekhFad31/mr-utc/Dockerfile) to install Chromium and the libraries required by `whatsapp-web.js`.
 
 ## Render deployment
 
