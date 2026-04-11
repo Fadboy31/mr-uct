@@ -43,7 +43,11 @@ function hydrateSessionBundle(sessionDir, bundleB64) {
 
   const resolvedRoot = path.resolve(sessionDir)
   const credsPath = path.join(resolvedRoot, 'creds.json')
-  if (fs.existsSync(credsPath)) {
+  const hasExistingSessionData =
+    (fs.existsSync(resolvedRoot) && listFiles(resolvedRoot).length > 0) ||
+    fs.existsSync(credsPath)
+
+  if (hasExistingSessionData) {
     return { imported: false, fileCount: 0 }
   }
 

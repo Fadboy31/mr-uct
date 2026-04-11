@@ -86,7 +86,7 @@ If your cloud host refuses to generate a usable QR or pairing code, you can boot
 4. In Railway, set:
    `SESSION_BUNDLE_B64=<that long base64 string>`
 5. Redeploy once.
-6. After the bot comes up connected and writes its own session files to `/data`, remove `SESSION_BUNDLE_B64` from Railway so the secret is not left sitting in env vars.
+6. After the bot comes up connected and writes its own session files to `/data`, remove `SESSION_BUNDLE_B64` from Railway so the secret is not left sitting in env vars and does not interfere with future restarts.
 
 ## Railway deployment
 
