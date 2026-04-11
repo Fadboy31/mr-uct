@@ -4,6 +4,11 @@ function normalizePhone(value) {
   return String(value || '').replace(/[^\d]/g, '')
 }
 
+const explicitDataDir = process.env.DATA_DIR
+const dataDir = explicitDataDir || path.join('storage', 'data')
+const sessionDir = process.env.AUTH_DIR || (explicitDataDir ? path.join(dataDir, 'session') : path.join('storage', 'session'))
+const logFile = process.env.LOG_FILE || (explicitDataDir ? path.join(dataDir, 'logs', 'mrutc.log') : path.join('storage', 'logs', 'mrutc.log'))
+
 const config = {
   botName: process.env.BOT_NAME || 'Mr. UTC | Uni-Connect TZ Bot',
   adminNumber: normalizePhone(process.env.ADMIN_NUMBER || '255710852376'),
@@ -12,9 +17,10 @@ const config = {
   workingHours:
     process.env.WORKING_HOURS ||
     'Mon-Fri: 10:00am - 11:00pm\nSat & Sun: 9:30am - 11:00pm',
-  sessionDir: process.env.AUTH_DIR || path.join('storage', 'session'),
-  dataDir: process.env.DATA_DIR || path.join('storage', 'data'),
-  logFile: process.env.LOG_FILE || path.join('storage', 'logs', 'mrutc.log'),
+  sessionDir,
+  dataDir,
+  logFile,
+  host: process.env.HOST || '127.0.0.1',
   port: Number(process.env.PORT || 3000),
   statusReaction: '\ud83d\udd25',
   orderRetentionLimit: 300

@@ -5,8 +5,9 @@
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
+    "start:fresh": "node scripts/start-fresh.js",
     "dev": "node bot.js",
-    "test": "node --check bot.js && node --check src\\app.js && node --check src\\config.js && node --check src\\store.js && node --check src\\copy.js"
+    "test": "node --check bot.js && node --check scripts/start-fresh.js && node --check src/app.js && node --check src/config.js && node --check src/store.js && node --check src/copy.js"
   },
   "keywords": [],
   "author": "Mr. UTC",

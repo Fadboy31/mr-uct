@@ -2,7 +2,7 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion
+  Browsers
 } = require('@whiskeysockets/baileys')
 const P = require('pino')
 const qrcode = require('qrcode-terminal')
@@ -633,17 +633,18 @@ async function generatePairingCode() {
 
 async function connectSocket() {
   const { state, saveCreds } = await useMultiFileAuthState(config.sessionDir)
-  const { version } = await fetchLatestBaileysVersion()
 
   runtime.connectionState.status = 'starting'
   runtime.connectionState.lastError = null
   log(`Starting ${config.botName}...`)
 
   runtime.sock = makeWASocket({
-    version,
     logger: P({ level: 'silent' }),
     auth: state,
+    browser: Browsers.macOS('Google Chrome'),
     printQRInTerminal: false,
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
     getMessage: async () => ({ conversation: '' })
   })
 
@@ -787,8 +788,8 @@ function startHttpServer() {
     res.end(renderHomePage())
   })
 
-  server.listen(config.port, () => {
-    log(`HTTP server listening on port ${config.port}`)
+  server.listen(config.port, config.host, () => {
+    log(`HTTP server listening on ${config.host}:${config.port}`)
   })
 }
 

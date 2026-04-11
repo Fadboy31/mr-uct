@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+storage
+auth_mrutc
+auth_mrutc_backup_*
+data
+*.log
+.env

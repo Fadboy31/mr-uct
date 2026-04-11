@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: mr-utc
+    runtime: docker
+    plan: starter
+    disk:
+      name: mr-utc-data
+      mountPath: /data
+      sizeGB: 1
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 3000
+      - key: DATA_DIR
+        value: /data
