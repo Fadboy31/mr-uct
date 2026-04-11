@@ -70,6 +70,20 @@ npm run start:fresh
 
 This clears only the stored WhatsApp auth session and old QR artifacts, then starts the bot again so you get a fresh QR or pairing code.
 
+## Session bootstrap fallback
+
+If your cloud host refuses to generate a usable QR or pairing code, you can bootstrap the WhatsApp session once from a working local machine and move that session to the server.
+
+1. Connect the bot locally where QR login works.
+2. Export the session bundle:
+   `npm run session:export`
+3. Copy the generated base64 string from:
+   `storage/data/session-bundle.b64.txt`
+4. In Railway, set:
+   `SESSION_BUNDLE_B64=<that long base64 string>`
+5. Redeploy once.
+6. After the bot comes up connected and writes its own session files to `/data`, remove `SESSION_BUNDLE_B64` from Railway so the secret is not left sitting in env vars.
+
 ## Railway deployment
 
 1. Create a new Railway project from this folder or GitHub repo.

@@ -20,6 +20,7 @@ const config = {
   sessionDir,
   dataDir,
   logFile,
+  sessionBundleB64: process.env.SESSION_BUNDLE_B64 || '',
   host: process.env.HOST || '127.0.0.1',
   port: Number(process.env.PORT || 3000),
   statusReaction: '\ud83d\udd25',

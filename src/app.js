@@ -12,6 +12,7 @@ const http = require('http')
 const { config } = require('./config')
 const { createStore } = require('./store')
 const { getWelcomeMessage, getOrderGuideMessage, formatOrderSummary } = require('./copy')
+const { hydrateSessionBundle } = require('./session-bundle')
 
 const store = createStore(config)
 
@@ -809,6 +810,10 @@ function registerProcessHandlers() {
 async function start() {
   store.ensureFilesystem()
   store.load()
+  const bundleResult = hydrateSessionBundle(config.sessionDir, config.sessionBundleB64)
+  if (bundleResult.imported) {
+    log(`Imported ${bundleResult.fileCount} session file(s) from SESSION_BUNDLE_B64.`)
+  }
   registerProcessHandlers()
   startHttpServer()
   await connectSocket()
