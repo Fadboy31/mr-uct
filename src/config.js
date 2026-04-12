@@ -82,16 +82,52 @@ config.qrSvgFile = path.join(config.dataDir, 'latest-qr.svg')
 config.qrTextFile = path.join(config.dataDir, 'latest-qr.txt')
 
 config.services = [
-  { key: 'heslb', label: 'HESLB Loan Application' },
-  { key: 'rita', label: 'RITA Birth & Death Certificate' },
-  { key: 'ajira', label: 'Ajira Portal & Job Application' },
-  { key: 'research', label: 'Research Proposal & Field Report' },
-  { key: 'visa', label: 'Visa Application' },
-  { key: 'passport', label: 'Passport Application' },
-  { key: 'university', label: 'University Application' }
+  {
+    key: 'heslb',
+    label: 'HESLB Loan Application',
+    aliases: ['heslb', 'loan', 'loan application', 'mkopo', 'heslb loan']
+  },
+  {
+    key: 'rita',
+    label: 'RITA Birth & Death Certificate',
+    aliases: ['rita', 'birth certificate', 'death certificate', 'cheti', 'birth cert', 'death cert']
+  },
+  {
+    key: 'ajira',
+    label: 'Ajira Portal & Job Application',
+    aliases: ['ajira', 'job', 'job application', 'ajira portal', 'kazi']
+  },
+  {
+    key: 'research',
+    label: 'Research Proposal & Field Report',
+    aliases: ['research', 'proposal', 'field report', 'project', 'report']
+  },
+  {
+    key: 'visa',
+    label: 'Visa Application',
+    aliases: ['visa', 'travel visa', 'visa application']
+  },
+  {
+    key: 'passport',
+    label: 'Passport Application',
+    aliases: ['passport', 'passport application']
+  },
+  {
+    key: 'university',
+    label: 'University Application',
+    aliases: ['university', 'admission', 'application', 'college', 'udahili']
+  }
 ]
 
-config.serviceMap = Object.fromEntries(config.services.map((service) => [service.key, service]))
-config.silentKeywords = new Set(['hey', 'hi', 'hello', 'mambo', 'habari', 'niaje', 'yo', 'bro', 'poa', 'sasa'])
+config.serviceMap = Object.fromEntries(
+  config.services.flatMap((service) => service.aliases.map((alias) => [alias, service]))
+)
+config.silentKeywords = new Set(['hey', 'hi', 'hello', 'mambo', 'habari', 'niaje', 'yo', 'bro', 'poa', 'sasa', 'vp', 'vipi'])
+config.keywordMap = {
+  menu: new Set(['menu', 'services', 'service', 'huduma', 'help', 'info', 'start']),
+  order: new Set(['order', 'apply', 'application', 'book', 'nataka huduma', 'nataka order']),
+  hours: new Set(['hours', 'time', 'working hours', 'muda']),
+  price: new Set(['price', 'pricing', 'cost', 'quotation', 'quote', 'bei'])
+}
 
 module.exports = { config, normalizePhone }

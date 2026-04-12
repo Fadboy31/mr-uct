@@ -5,7 +5,13 @@ const fs = require('fs')
 const http = require('http')
 const { config } = require('./config')
 const { createStore } = require('./store')
-const { getWelcomeMessage, getOrderGuideMessage, formatOrderSummary } = require('./copy')
+const {
+  getWelcomeMessage,
+  getOrderGuideMessage,
+  getPriceMessage,
+  getHoursMessage,
+  formatOrderSummary
+} = require('./copy')
 const { hydrateSessionBundle } = require('./session-bundle')
 
 const store = createStore(config)
@@ -71,17 +77,28 @@ function getServiceByText(text) {
   return config.serviceMap[simplifyText(text)] || null
 }
 
+function getKeywordAction(text) {
+  const normalized = simplifyText(text)
+  if (!normalized) {
+    return null
+  }
+
+  for (const [action, keywords] of Object.entries(config.keywordMap)) {
+    if (keywords.has(normalized)) {
+      return action
+    }
+  }
+
+  return null
+}
+
 function isBusinessIntent(text) {
   const normalized = simplifyText(text)
   if (!normalized || config.silentKeywords.has(normalized)) {
     return false
   }
 
-  if (['order', 'menu', 'services', 'help', 'hours', 'price'].includes(normalized)) {
-    return true
-  }
-
-  return Boolean(getServiceByText(normalized))
+  return Boolean(getKeywordAction(normalized) || getServiceByText(normalized))
 }
 
 function log(message) {
@@ -94,6 +111,10 @@ function log(message) {
     }
   }
   fs.appendFileSync(config.logFile, `${entry}\n`)
+}
+
+function getKnownContact(phone) {
+  return store.state.knownContacts.includes(phone)
 }
 
 function rememberContact(jid) {
@@ -181,33 +202,54 @@ async function sendOrderPrompt(jid, step, session) {
     await sendText(jid, getOrderGuideMessage(config))
     return
   }
+
   if (step === 'full_name') {
-    await sendText(jid, `Sawa 👌 Tumekuweka kwenye *${session.order.serviceLabel}*.\n\nTuma *majina yako kamili* kama yatatumika kwenye order.`)
-    return
-  }
-  if (step === 'details') {
     await sendText(
       jid,
       [
-        `Poa *${session.order.fullName}*.`,
+        `Sawa, tumeanza order ya *${session.order.serviceLabel}*.`,
         '',
-        'Sasa eleza order yako vizuri kidogo.',
-        'Andika details muhimu: unahitaji nini exactly, documents ulizonazo, na chochote kinachotakiwa tujue.'
+        'Step 1/4',
+        'Tuma *majina yako kamili* yatakayotumika kwenye order hii.'
       ].join('\n')
     )
     return
   }
-  if (step === 'urgency') {
-    await sendText(jid, 'Order details zimepokelewa.\n\nTuambie *timeline* yako: unaitaka lini au ni urgent kiasi gani?')
+
+  if (step === 'details') {
+    await sendText(
+      jid,
+      [
+        `Asante *${session.order.fullName}*.`,
+        '',
+        'Step 2/4',
+        'Eleza order yako vizuri kwa summary fupi lakini clear.',
+        'Taja unachohitaji exactly, details muhimu ulizonazo, na chochote tunachopaswa kujua kabla hatujaanza.'
+      ].join('\n')
+    )
     return
   }
+
+  if (step === 'urgency') {
+    await sendText(
+      jid,
+      [
+        'Step 3/4',
+        'Sasa tuma *deadline* au urgency yako.',
+        'Mfano: "before Monday", "leo usiku", au "not urgent".'
+      ].join('\n')
+    )
+    return
+  }
+
   await sendText(
     jid,
     [
-      '📋 *Order review*',
+      '*Order review*',
       '',
       formatOrderSummary({ ...session.order, status: 'Pending confirmation' }),
       '',
+      'Step 4/4',
       'Reply *confirm* ku-submit order.',
       'Reply *edit* kuanza upya.',
       'Reply *cancel* kufuta order.'
@@ -233,7 +275,7 @@ async function handleOrderFlow(jid, text, session) {
   if (session.step === 'service') {
     const service = getServiceByText(text)
     if (!service) {
-      await sendText(jid, `Please chagua service sahihi: ${config.services.map((item) => item.key).join(', ')}.`)
+      await sendText(jid, `Please chagua keyword sahihi ya service: ${config.services.map((item) => item.key).join(', ')}.`)
       return true
     }
     session.order.serviceKey = service.key
@@ -246,7 +288,7 @@ async function handleOrderFlow(jid, text, session) {
 
   if (session.step === 'full_name') {
     if (text.trim().length < 5 || text.trim().split(/\s+/).length < 2) {
-      await sendText(jid, 'Tafadhali tuma *majina mawili au zaidi* ili tuweke order vizuri.')
+      await sendText(jid, 'Tafadhali tuma *majina mawili au zaidi* ili order iwekewe details sahihi.')
       return true
     }
     session.order.fullName = text.trim()
@@ -258,7 +300,7 @@ async function handleOrderFlow(jid, text, session) {
 
   if (session.step === 'details') {
     if (text.trim().length < 10) {
-      await sendText(jid, 'Details bado ni short sana. Tafadhali eleza order vizuri kidogo.')
+      await sendText(jid, 'Details bado ni short sana. Tafadhali eleza order vizuri na kwa clarity zaidi.')
       return true
     }
     session.order.details = text.trim()
@@ -270,7 +312,7 @@ async function handleOrderFlow(jid, text, session) {
 
   if (session.step === 'urgency') {
     if (text.trim().length < 3) {
-      await sendText(jid, 'Tafadhali tuma timeline au urgency yako kwa kifupi.')
+      await sendText(jid, 'Tafadhali tuma deadline au urgency yako kwa maneno machache lakini clear.')
       return true
     }
     session.order.urgency = text.trim()
@@ -292,6 +334,7 @@ async function handleOrderFlow(jid, text, session) {
     submittedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }
+
   store.state.orders.push(order)
   store.state.orders = store.state.orders.slice(-config.orderRetentionLimit)
   clearOrderSession(jid)
@@ -300,22 +343,52 @@ async function handleOrderFlow(jid, text, session) {
   await sendText(
     jid,
     [
-      '✅ *Order yako imepokelewa*',
+      '*Order yako imepokelewa*',
       '',
       `Order ID yako ni *${order.id}*.`,
-      'Team yetu ita-review na kukurudia soon.',
+      'Team yetu ita-review order yako na kukurudia kwa hatua inayofuata soon.',
       `Kwa follow-up ya haraka unaweza pia kutumia *${config.contactNumber}*.`
     ].join('\n')
   )
-  await notifyAdmin(['🚨 *New Order Received*', '', formatOrderSummary(order)].join('\n'))
+
+  await notifyAdmin(['*New Order Received*', '', formatOrderSummary(order)].join('\n'))
   return true
+}
+
+function getActiveSessionsSummary() {
+  const entries = Object.entries(store.state.orderSessions)
+  if (!entries.length) {
+    return 'Hakuna active order sessions kwa sasa.'
+  }
+
+  return [
+    '*Active Sessions*',
+    '',
+    ...entries.map(([phone, session]) => `${phone} | ${session.step} | ${session.order.serviceKey || 'service-pending'}`)
+  ].join('\n')
+}
+
+function getRecentOrdersSummary() {
+  const orders = store.state.orders.slice(-5).reverse()
+  if (!orders.length) {
+    return 'Hakuna order bado.'
+  }
+
+  return [
+    '*Recent Orders*',
+    '',
+    ...orders.map((order) => `${order.id} | ${order.fullName} | ${order.serviceKey} | ${order.status} | ${order.customerPhone}`)
+  ].join('\n')
 }
 
 async function handleAdminCommand(from, command) {
   const trimmed = command.trim()
   const normalized = simplifyText(trimmed)
+  const parts = trimmed.split(/\s+/)
+  const primary = simplifyText(parts[0] || '')
+  const argument = parts.slice(1).join(' ').trim()
 
-  if (['status', '!status', 'bot status'].includes(normalized)) {
+  if (['status', '!status', 'bot status', '!stats', 'stats'].includes(normalized)) {
     const storage = store.getStorageSnapshot()
     await sendText(
       from,
@@ -337,6 +410,46 @@ async function handleAdminCommand(from, command) {
     return true
   }
 
+  if (primary === '!order' && argument) {
+    const order = store.state.orders.find((item) => item.id.toLowerCase() === argument.toLowerCase())
+    await sendText(from, order ? ['*Order Lookup*', '', formatOrderSummary(order)].join('\n') : `Order ${argument} haijapatikana.`)
+    return true
+  }
+
+  if (['orders', '!orders'].includes(normalized)) {
+    await sendText(from, getRecentOrdersSummary())
+    return true
+  }
+
+  if (['!sessions', 'sessions'].includes(primary)) {
+    await sendText(from, getActiveSessionsSummary())
+    return true
+  }
+
+  if (primary === '!session' && argument) {
+    const phone = jidToPhone(argument)
+    const session = store.state.orderSessions[phone]
+    await sendText(
+      from,
+      session
+        ? ['*Session Lookup*', '', `Phone: ${phone}`, `Step: ${session.step}`, formatOrderSummary({ ...session.order, status: 'Active draft' })].join('\n')
+        : `Hakuna active session ya ${argument}.`
+    )
+    return true
+  }
+
+  if (primary === '!cancelsession' && argument) {
+    const phone = jidToPhone(argument)
+    if (store.state.orderSessions[phone]) {
+      delete store.state.orderSessions[phone]
+      store.save()
+      await sendText(from, `Active session ya ${phone} imefutwa.`)
+      return true
+    }
+    await sendText(from, `Hakuna active session ya ${argument}.`)
+    return true
+  }
+
   if (['on', '!on'].includes(normalized)) {
     store.state.botActive = true
     store.save()
@@ -351,14 +464,14 @@ async function handleAdminCommand(from, command) {
     return true
   }
 
-  if (['welcome on', '!reply on'].includes(normalized)) {
+  if (['welcome on', '!reply on', '!welcome on'].includes(normalized)) {
     store.state.autoWelcomeActive = true
     store.save()
     await sendText(from, 'First-time welcome iko ON.')
     return true
   }
 
-  if (['welcome off', '!reply off'].includes(normalized)) {
+  if (['welcome off', '!reply off', '!welcome off'].includes(normalized)) {
     store.state.autoWelcomeActive = false
     store.save()
     await sendText(from, 'First-time welcome iko OFF.')
@@ -393,17 +506,6 @@ async function handleAdminCommand(from, command) {
     return true
   }
 
-  if (['orders', '!orders'].includes(normalized)) {
-    const orders = store.state.orders.slice(-5).reverse()
-    await sendText(
-      from,
-      orders.length
-        ? ['*Recent Orders*', '', ...orders.map((order) => `${order.id} | ${order.fullName} | ${order.serviceKey} | ${order.status} | ${order.customerPhone}`)].join('\n')
-        : 'Hakuna order bado.'
-    )
-    return true
-  }
-
   if (['storage', '!storage'].includes(normalized)) {
     const storage = store.getStorageSnapshot()
     await sendText(
@@ -427,19 +529,24 @@ async function handleAdminCommand(from, command) {
       [
         `*Admin Commands - ${config.botName}*`,
         '',
-        '!status',
+        '!status / !stats',
         '!on / !off',
         '!reply on / !reply off',
         '!view on / !view off',
         '!like on / !like off',
         '!orders',
+        '!order MRUTC-0001',
+        '!sessions',
+        '!session 2557XXXXXXXX',
+        '!cancelsession 2557XXXXXXXX',
         '!storage'
       ].join('\n')
     )
     return true
   }
 
-  return false
+  await sendText(from, 'Unknown admin command. Reply *!help* for the command list.')
+  return true
 }
 
 async function handleStatusMessage(message) {
@@ -467,10 +574,8 @@ async function handleDirectMessage(message) {
   }
 
   if (isAdmin(from) && text.trim().startsWith('!')) {
-    const handled = await handleAdminCommand(from, text)
-    if (handled) {
-      return
-    }
+    await handleAdminCommand(from, text)
+    return
   }
 
   if (!store.state.botActive) {
@@ -485,14 +590,28 @@ async function handleDirectMessage(message) {
 
   const normalized = simplifyText(text)
   const service = getServiceByText(text)
-  const isNewContact = rememberContact(from)
+  const action = getKeywordAction(text)
+  const phone = jidToPhone(from)
+  const wasKnown = getKnownContact(phone)
+  const hasBusinessKeyword = Boolean(service || action)
 
-  if (isNewContact && store.state.autoWelcomeActive) {
-    await sendText(from, getWelcomeMessage(config))
+  if (!hasBusinessKeyword) {
+    log(`Silenced non-keyword message from ${from}: ${normalized || '[empty]'}`)
     return
   }
 
-  if (normalized === 'order') {
+  if (!wasKnown) {
+    rememberContact(from)
+  }
+
+  if (!wasKnown && store.state.autoWelcomeActive) {
+    await sendText(from, getWelcomeMessage(config))
+    if (action === 'menu') {
+      return
+    }
+  }
+
+  if (action === 'order') {
     startOrderFlow(from, null)
     await sendOrderPrompt(from, 'service', getOrderSession(from))
     return
@@ -504,31 +623,23 @@ async function handleDirectMessage(message) {
     return
   }
 
-  if (['services', 'menu', 'help'].includes(normalized)) {
+  if (action === 'menu') {
     await sendText(from, getOrderGuideMessage(config))
     return
   }
 
-  if (normalized === 'hours') {
-    await sendText(from, `🕐 *Working Hours*\n\n${config.workingHours}`)
+  if (action === 'hours') {
+    await sendText(from, getHoursMessage(config))
     return
   }
 
-  if (normalized === 'price') {
-    await sendText(
-      from,
-      [
-        '💰 *Pricing info*',
-        '',
-        'Bei inategemea service na ugumu wa kazi.',
-        `Kwa exact quotation, text *order* au reach us direct kupitia *${config.contactNumber}*.`
-      ].join('\n')
-    )
+  if (action === 'price') {
+    await sendText(from, getPriceMessage(config))
     return
   }
 
   if (!isBusinessIntent(text)) {
-    log(`Silenced non-business message from ${from}`)
+    log(`Silenced non-business message from ${from}: ${normalized || '[empty]'}`)
   }
 }
 
@@ -601,6 +712,9 @@ function getConnectionSnapshot() {
     knownContacts: store.state.knownContacts.length,
     activeOrderSessions: Object.keys(store.state.orderSessions).length,
     ordersStored: store.state.orders.length,
+    autoWelcomeActive: store.state.autoWelcomeActive,
+    autoViewActive: store.state.autoViewActive,
+    autoLikeActive: store.state.autoLikeActive,
     uptimeSeconds: Math.round(process.uptime()),
     storage: store.getStorageSnapshot()
   }
@@ -681,7 +795,7 @@ function buildClient() {
     log(`Loading WhatsApp Web: ${percent}% ${message || ''}`.trim())
   })
 
-  client.on('disconnected', async (reason) => {
+  client.on('disconnected', (reason) => {
     const reasonText = String(reason || 'unknown')
     const loggedOut = /logout/i.test(reasonText)
 
@@ -793,11 +907,13 @@ function startHttpServer() {
       res.end(JSON.stringify(getConnectionSnapshot()))
       return
     }
+
     if (req.url === '/storage-status') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(store.getStorageSnapshot()))
       return
     }
+
     if (req.url === '/reset-session') {
       await destroyClient()
       store.clearSessionDirectory()
@@ -810,6 +926,7 @@ function startHttpServer() {
       res.end(JSON.stringify({ ok: true, ...getConnectionSnapshot() }))
       return
     }
+
     if (req.url === '/qr') {
       if (!runtime.latestQrDataUrl) {
         res.writeHead(404, { 'Content-Type': 'application/json' })
@@ -820,6 +937,7 @@ function startHttpServer() {
       res.end(Buffer.from(runtime.latestQrDataUrl.split(',')[1], 'base64'))
       return
     }
+
     if (req.url === '/qr.svg') {
       if (!runtime.latestQrSvg) {
         res.writeHead(404, { 'Content-Type': 'application/json' })
@@ -830,6 +948,7 @@ function startHttpServer() {
       res.end(runtime.latestQrSvg)
       return
     }
+
     if (req.url === '/pairing-code') {
       try {
         const code = await generatePairingCode()
@@ -841,11 +960,13 @@ function startHttpServer() {
       }
       return
     }
+
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ ok: true, botName: config.botName, ...getConnectionSnapshot() }))
       return
     }
+
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
     res.end(renderHomePage())
   })
@@ -862,6 +983,7 @@ function registerProcessHandlers() {
       log(`Uncaught exception: ${error.message}`)
     }
   })
+
   process.on('unhandledRejection', (error) => {
     runtime.connectionState.lastError = error?.message || String(error)
     log(`Unhandled rejection: ${error?.message || error}`)

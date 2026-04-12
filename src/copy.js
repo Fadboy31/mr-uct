@@ -4,29 +4,51 @@ function getServiceMenu(config) {
 
 function getWelcomeMessage(config) {
   return [
-    '\ud83d\udc4b *Karibu Mr. UTC | Uni-Connect TZ*',
+    '*Karibu Mr. UTC | Uni-Connect TZ*',
     '',
-    'Tunasaidia online services kwa style ya haraka, clean, na professional.',
-    'We handle online services fast and professionally.',
+    'Tunashughulika na online applications na digital support kwa style ya clean, fast, na professional.',
+    'We only respond to service keywords so the line stays focused and premium.',
     '',
-    '*Services zetu:*',
+    '*Available service keywords*',
     getServiceMenu(config),
     '',
-    'Kama uko ready ku-place order, reply *order* au type service moja kwa moja, mfano *visa*.',
-    `\ud83d\udcf1 Direct support: *${config.contactNumber}*`,
-    `\ud83d\udd50 Working hours: ${config.workingHours}`
+    'To continue, reply *order* au type service keyword moja kwa moja, mfano *visa*.',
+    `Direct support: *${config.contactNumber}*`,
+    `Working hours: ${config.workingHours}`
   ].join('\n')
 }
 
 function getOrderGuideMessage(config) {
   return [
-    '\ud83d\udce6 *Order Flow imeanza*',
+    '*Order Desk*',
     '',
-    'Chagua service unayotaka kwa ku-reply keyword moja hapa chini:',
+    'Reply keyword moja ya huduma unayotaka tuanze nayo:',
     getServiceMenu(config),
     '',
     'Mfano: *heslb*'
   ].join('\n')
+}
+
+function getPriceMessage(config) {
+  return [
+    '*Pricing guide*',
+    '',
+    'Bei inategemea aina ya service, urgency, na kazi iliyopo ndani ya order yako.',
+    'Kwa quotation sahihi, reply *order* au tuma keyword ya huduma moja kwa moja.',
+    `Direct line: *${config.contactNumber}*`
+  ].join('\n')
+}
+
+function getHoursMessage(config) {
+  return [
+    '*Working hours*',
+    '',
+    config.workingHours
+  ].join('\n')
+}
+
+function getSilentModeMessage() {
+  return 'This bot only responds to service keywords and active order steps.'
 }
 
 function formatOrderSummary(order) {
@@ -35,10 +57,17 @@ function formatOrderSummary(order) {
     `Customer: *${order.fullName || 'Not set'}*`,
     `Phone: *${order.customerPhone || 'Unknown'}*`,
     `Service: *${order.serviceLabel || 'Not selected'}*`,
-    `Details: ${order.details || 'Not provided'}`,
-    `Timeline / urgency: ${order.urgency || 'Not provided'}`,
+    `Brief: ${order.details || 'Not provided'}`,
+    `Deadline / urgency: ${order.urgency || 'Not provided'}`,
     `Status: *${order.status || 'Draft'}*`
   ].join('\n')
 }
 
-module.exports = { getWelcomeMessage, getOrderGuideMessage, formatOrderSummary }
+module.exports = {
+  getWelcomeMessage,
+  getOrderGuideMessage,
+  getPriceMessage,
+  getHoursMessage,
+  getSilentModeMessage,
+  formatOrderSummary
+}
