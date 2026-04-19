@@ -19,6 +19,7 @@ const store = createStore(config)
 const runtime = {
   client: null,
   reconnectTimer: null,
+  healthTimer: null,
   initializing: false,
   latestQrDataUrl: null,
   latestQrSvg: null,
@@ -29,8 +30,28 @@ const runtime = {
     status: 'starting',
     lastError: null,
     lastDisconnectCode: null,
-    connectedAt: null
+    connectedAt: null,
+    waState: null,
+    lastStateCheckAt: null,
+    lastPresenceAt: null,
+    lastHealthyAt: null,
+    healthFailures: 0
   }
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
+    promise
+      .then((value) => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch((error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+  })
 }
 
 function jidToPhone(jid) {
@@ -111,6 +132,38 @@ function log(message) {
     }
   }
   fs.appendFileSync(config.logFile, `${entry}\n`)
+}
+
+function getHealthyStateSet() {
+  return new Set(['CONNECTED', 'OPENING', 'PAIRING', 'TIMEOUT'])
+}
+
+function markConnectionHealthy(waState = runtime.connectionState.waState || 'CONNECTED') {
+  const now = new Date().toISOString()
+  runtime.connectionState.waState = waState
+  runtime.connectionState.lastStateCheckAt = now
+  runtime.connectionState.lastHealthyAt = now
+  runtime.connectionState.healthFailures = 0
+}
+
+function getLastStateCheckAgeMs() {
+  if (!runtime.connectionState.lastStateCheckAt) {
+    return null
+  }
+
+  return Date.now() - new Date(runtime.connectionState.lastStateCheckAt).getTime()
+}
+
+function isConnectionHealthy() {
+  const ageMs = getLastStateCheckAgeMs()
+  const staleWindowMs = Math.max(config.heartbeatIntervalMs * 3, 180000)
+
+  return Boolean(
+    runtime.connectionState.status === 'connected' &&
+    runtime.connectionState.waState === 'CONNECTED' &&
+    ageMs !== null &&
+    ageMs <= staleWindowMs
+  )
 }
 
 function getKnownContact(phone) {
@@ -195,6 +248,19 @@ async function sendText(jid, text) {
 
 async function notifyAdmin(text) {
   return sendText(toUserJid(config.adminNumber), text)
+}
+
+async function sendPresenceHeartbeat(trigger = 'manual') {
+  if (!runtime.client || typeof runtime.client.sendPresenceAvailable !== 'function') {
+    return false
+  }
+
+  await withTimeout(runtime.client.sendPresenceAvailable(), 15000, 'sendPresenceAvailable')
+  const now = new Date().toISOString()
+  runtime.connectionState.lastPresenceAt = now
+  runtime.connectionState.lastHealthyAt = now
+  log(`Presence heartbeat sent (${trigger}).`)
+  return true
 }
 
 async function sendOrderPrompt(jid, step, session) {
@@ -698,12 +764,111 @@ function clearQrArtifacts() {
   }
 }
 
+function stopHealthMonitor() {
+  if (!runtime.healthTimer) {
+    return
+  }
+
+  clearInterval(runtime.healthTimer)
+  runtime.healthTimer = null
+}
+
+async function reconnectFromHealth(reason) {
+  log(`Health reconnect: ${reason}`)
+  runtime.connectionState.status = 'reconnecting'
+  runtime.connectionState.lastError = reason
+  runtime.connectionState.connectedAt = null
+  stopHealthMonitor()
+  await destroyClient()
+  scheduleReconnect()
+}
+
+async function restartProcessFromHealth(reason) {
+  log(`Health failure threshold reached. Restarting process: ${reason}`)
+  runtime.connectionState.status = 'restarting_process'
+  runtime.connectionState.lastError = reason
+  runtime.connectionState.connectedAt = null
+  stopHealthMonitor()
+
+  const forcedExitTimer = setTimeout(() => process.exit(1), 3000)
+  if (typeof forcedExitTimer.unref === 'function') {
+    forcedExitTimer.unref()
+  }
+
+  try {
+    await withTimeout(destroyClient(), 2500, 'destroyClient')
+  } catch (error) {
+    log(`Process restart destroy warning: ${error.message}`)
+  }
+
+  process.exit(1)
+}
+
+async function handleHealthFailure(reason) {
+  runtime.connectionState.healthFailures += 1
+  runtime.connectionState.lastError = reason
+  runtime.connectionState.lastStateCheckAt = new Date().toISOString()
+
+  if (config.exitOnHealthFailure && runtime.connectionState.healthFailures >= config.healthFailureThreshold) {
+    await restartProcessFromHealth(reason)
+    return
+  }
+
+  await reconnectFromHealth(`${reason} | healthFailure ${runtime.connectionState.healthFailures}/${config.healthFailureThreshold}`)
+}
+
+function startHealthMonitor() {
+  if (runtime.healthTimer) {
+    return
+  }
+
+  runtime.healthTimer = setInterval(async () => {
+    if (!runtime.client || runtime.initializing) {
+      return
+    }
+
+    try {
+      const state = await withTimeout(runtime.client.getState(), 15000, 'getState')
+      runtime.connectionState.waState = state || null
+      runtime.connectionState.lastStateCheckAt = new Date().toISOString()
+
+      const acceptedStates = getHealthyStateSet()
+      if (state && !acceptedStates.has(state)) {
+        await handleHealthFailure(`Unexpected WA state: ${state}`)
+        return
+      }
+
+      runtime.connectionState.lastHealthyAt = new Date().toISOString()
+      runtime.connectionState.healthFailures = 0
+
+      if (state === 'CONNECTED') {
+        const now = Date.now()
+        const lastPresenceAt = runtime.connectionState.lastPresenceAt
+          ? new Date(runtime.connectionState.lastPresenceAt).getTime()
+          : 0
+
+        if (!lastPresenceAt || now - lastPresenceAt >= config.presenceIntervalMs) {
+          await sendPresenceHeartbeat('interval')
+        }
+      }
+    } catch (error) {
+      await handleHealthFailure(`Heartbeat failed: ${error.message}`)
+    }
+  }, config.heartbeatIntervalMs)
+}
+
 function getConnectionSnapshot() {
   return {
     status: runtime.connectionState.status,
     lastError: runtime.connectionState.lastError,
     lastDisconnectCode: runtime.connectionState.lastDisconnectCode,
     connectedAt: runtime.connectionState.connectedAt,
+    waState: runtime.connectionState.waState,
+    lastStateCheckAt: runtime.connectionState.lastStateCheckAt,
+    lastPresenceAt: runtime.connectionState.lastPresenceAt,
+    lastHealthyAt: runtime.connectionState.lastHealthyAt,
+    healthFailures: runtime.connectionState.healthFailures,
+    connectionHealthy: isConnectionHealthy(),
     latestQrIssuedAt: runtime.latestQrIssuedAt,
     latestPairingCodeIssuedAt: runtime.latestPairingCodeIssuedAt,
     hasQr: Boolean(runtime.latestQrDataUrl),
@@ -752,6 +917,10 @@ function buildClient() {
       clientId: config.webClientId,
       dataPath: config.sessionDir
     }),
+    takeoverOnConflict: true,
+    takeoverTimeoutMs: 0,
+    deviceName: 'Mr UTC Railway',
+    browserName: 'Railway Chrome',
     puppeteer: {
       headless: true,
       executablePath: config.chromeExecutablePath || undefined,
@@ -775,12 +944,25 @@ function buildClient() {
     log('WhatsApp session authenticated.')
   })
 
-  client.on('ready', () => {
+  client.on('change_state', (state) => {
+    runtime.connectionState.waState = state || null
+    runtime.connectionState.lastStateCheckAt = new Date().toISOString()
+    log(`WhatsApp state changed: ${state || 'unknown'}`)
+  })
+
+  client.on('ready', async () => {
     runtime.connectionState.status = 'connected'
     runtime.connectionState.connectedAt = new Date().toISOString()
     runtime.connectionState.lastError = null
     runtime.connectionState.lastDisconnectCode = null
+    markConnectionHealthy('CONNECTED')
     clearQrArtifacts()
+    startHealthMonitor()
+    try {
+      await sendPresenceHeartbeat('ready')
+    } catch (error) {
+      log(`Ready presence warning: ${error.message}`)
+    }
     log('WhatsApp client is ready.')
   })
 
@@ -803,6 +985,8 @@ function buildClient() {
     runtime.connectionState.lastError = reasonText
     runtime.connectionState.lastDisconnectCode = loggedOut ? 401 : 499
     runtime.connectionState.connectedAt = null
+    runtime.connectionState.waState = loggedOut ? 'LOGOUT' : null
+    stopHealthMonitor()
     log(`Client disconnected: ${reasonText}`)
 
     if (loggedOut) {
@@ -843,6 +1027,8 @@ async function destroyClient() {
   if (!runtime.client) {
     return
   }
+
+  stopHealthMonitor()
 
   try {
     await runtime.client.destroy()
@@ -963,7 +1149,7 @@ function startHttpServer() {
 
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ok: true, botName: config.botName, ...getConnectionSnapshot() }))
+      res.end(JSON.stringify({ ok: true, live: true, botName: config.botName, ...getConnectionSnapshot() }))
       return
     }
 

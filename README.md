@@ -49,10 +49,15 @@ Optional storage vars:
 - `LOG_FILE`
 - `SESSION_BUNDLE_B64`
 - `PUPPETEER_EXECUTABLE_PATH`
+- `HEARTBEAT_INTERVAL_MS`
+- `PRESENCE_INTERVAL_MS`
+- `HEALTH_FAILURE_THRESHOLD`
+- `EXIT_ON_HEALTH_FAILURE`
 
 Default local values are set for `storage/...`.
 For Railway or Render, setting only `DATA_DIR=/data` is enough for the bot to keep session files in `/data/session`, app state in `/data`, and logs in `/data/logs`.
 Railway Docker already sets `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`.
+For Railway, keep `EXIT_ON_HEALTH_FAILURE=true` so the service can restart itself when the WhatsApp web session goes stale even though the process is still alive.
 
 ## Local run
 
@@ -100,6 +105,17 @@ If your cloud host refuses to generate a usable QR or pairing code, you can boot
 8. If you prefer code linking, open `/pairing-code`.
 9. If the old session is broken, call `/reset-session` once and then fetch `/qr` or `/pairing-code` again.
 10. Use `/connection-status` and `/storage-status` for quick live checks.
+
+For live session checks, `/connection-status` now also reports:
+
+- `waState`
+- `lastStateCheckAt`
+- `lastPresenceAt`
+- `lastHealthyAt`
+- `healthFailures`
+- `connectionHealthy`
+
+If `status` says `connected` but `connectionHealthy` is `false`, the service is alive but the WhatsApp web session is stale and should auto-recover or restart.
 
 Railway uses the included [Dockerfile](C:/Users/MelekhFad31/mr-utc/Dockerfile) to install Chromium and the libraries required by `whatsapp-web.js`.
 

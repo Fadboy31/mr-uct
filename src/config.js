@@ -51,6 +51,14 @@ function normalizePhone(value) {
   return String(value || '').replace(/[^\d]/g, '')
 }
 
+function envFlag(value, fallback) {
+  if (value === undefined || value === null || value === '') {
+    return fallback
+  }
+
+  return !['false', '0', 'no', 'off'].includes(String(value).trim().toLowerCase())
+}
+
 const explicitDataDir = process.env.DATA_DIR
 const dataDir = explicitDataDir || path.join('storage', 'data')
 const sessionDir = process.env.AUTH_DIR || (explicitDataDir ? path.join(dataDir, 'session') : path.join('storage', 'session'))
@@ -72,6 +80,10 @@ const config = {
   port: Number(process.env.PORT || 3000),
   chromeExecutablePath: process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_BIN || '',
   webClientId: process.env.WEB_CLIENT_ID || 'mr-utc',
+  heartbeatIntervalMs: Math.max(15000, Number(process.env.HEARTBEAT_INTERVAL_MS || 60000)),
+  presenceIntervalMs: Math.max(60000, Number(process.env.PRESENCE_INTERVAL_MS || 300000)),
+  healthFailureThreshold: Math.max(1, Number(process.env.HEALTH_FAILURE_THRESHOLD || 3)),
+  exitOnHealthFailure: envFlag(process.env.EXIT_ON_HEALTH_FAILURE, process.env.NODE_ENV === 'production'),
   statusReaction: '\ud83d\udd25',
   orderRetentionLimit: 300
 }
